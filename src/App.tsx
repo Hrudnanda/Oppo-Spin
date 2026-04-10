@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { Cpu, Zap, History, Trophy, User, Clock } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { Cpu, Zap, Save, RotateCcw, FileJson, FileSpreadsheet, Trophy } from 'lucide-react';
+import confetti from 'canvas-confetti'; // Import confetti
 
 // --- TYPES & INTERFACES ---
 interface VisualSlice {
@@ -66,21 +67,102 @@ const VISUAL_WHEEL: VisualSlice[] = [
   { label: "SANDWICH MAKER", bg: "#ffffff", text: "#000", id: 'sandwich' },
 ];
 
+const generateShuffledPrizes = () => {
+  const pool = [
+    ...Array(20).fill('speaker'),
+    ...Array(20).fill('sandwich'),
+    ...Array(30).fill('buds'),
+    ...Array(3).fill('reno'),
+    ...Array(7).fill('f27'),
+    ...Array(36).fill('none'),
+  ];
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  return pool;
+};
+
+const SHUFFLED_DISTRIBUTION = generateShuffledPrizes();
+
 const SectorSpinStore: React.FC = () => {
   const [isSpinning, setIsSpinning] = useState<boolean>(false);
   const [rotation, setRotation] = useState<number>(0);
   const [activeWinners, setActiveWinners] = useState<Winner[]>([]);
   const [history, setHistory] = useState<Winner[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const SLICE_DEGREE = 360 / VISUAL_WHEEL.length;
 
-  const getPrizeIdForIndex = (index: number): string => {
-    if (index < 20) return 'speaker';
-    if (index < 40) return 'sandwich';
-    if (index < 70) return 'buds';
-    if (index < 73) return 'reno';
-    if (index < 80) return 'f27';
-    return 'none';
+  // --- WINNER SPARKLE EFFECT ---
+  const triggerSparkle = () => {
+    const duration = 3 * 1000;
+    const animationEnd = Date.now() + duration;
+    const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 0 };
+
+    const randomInRange = (min: number, max: number) => Math.random() * (max - min) + min;
+
+    const interval: any = setInterval(function() {
+      const timeLeft = animationEnd - Date.now();
+      if (timeLeft <= 0) return clearInterval(interval);
+
+      const particleCount = 50 * (timeLeft / duration);
+      // Oppo Theme Colors: Blue, Gold, Red, White
+      confetti({ ...defaults, particleCount, origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 }, colors: ['#3b82f6', '#f59e0b', '#ef4444'] });
+      confetti({ ...defaults, particleCount, origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 }, colors: ['#3b82f6', '#f59e0b', '#ef4444'] });
+    }, 250);
+  };
+
+  const saveFile = async (content: string, fileName: string, mimeType: string) => {
+    if ('showSaveFilePicker' in window) {
+      try {
+        const handle = await (window as any).showSaveFilePicker({
+          suggestedName: fileName,
+          types: [{
+            description: mimeType === 'application/json' ? 'JSON File' : 'CSV File',
+            accept: { [mimeType]: [mimeType === 'application/json' ? '.json' : '.csv'] },
+          }],
+        });
+        const writable = await handle.createWritable();
+        await writable.write(content);
+        await writable.close();
+      } catch (err) { console.log('Save cancelled'); }
+    } else {
+      const blob = new Blob([content], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      link.click();
+      URL.revokeObjectURL(url);
+    }
+  };
+
+  const saveAsJSON = () => {
+    if (history.length === 0) return alert("Dashboard is empty.");
+    saveFile(JSON.stringify(history, null, 2), `Oppo_Winners_${Date.now()}.json`, 'application/json');
+  };
+
+  const saveAsExcelCSV = () => {
+    if (history.length === 0) return alert("Dashboard is empty.");
+    const headers = ["Customer Name", "Prize", "Sector", "Time"];
+    const rows = history.map(w => [`"${w.customer}"`, `"${w.result.label}"`, `"${w.side.toUpperCase()}"`, `"${w.time}"`]);
+    const csvContent = [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
+    saveFile(csvContent, `Oppo_Report_${Date.now()}.csv`, 'text/csv');
+  };
+
+  const restoreData = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const json = JSON.parse(e.target?.result as string);
+        if (Array.isArray(json)) setHistory(json);
+      } catch (err) { alert("Invalid file."); }
+    };
+    reader.readAsText(file);
+    event.target.value = "";
   };
 
   const spinWheel = () => {
@@ -88,14 +170,12 @@ const SectorSpinStore: React.FC = () => {
     setIsSpinning(true);
     
     const primaryIndex = history.length;
-    const targetPrizeId = getPrizeIdForIndex(primaryIndex);
+    const targetPrizeId = SHUFFLED_DISTRIBUTION[primaryIndex];
     const matchingSlices = VISUAL_WHEEL.map((s, i) => s.id === targetPrizeId ? i : -1).filter(i => i !== -1);
     const targetSliceIndex = matchingSlices[Math.floor(Math.random() * matchingSlices.length)];
 
-    const extraSpins = 360 * 8; 
+    const extraSpins = 360 * 10; 
     const currentRotMod = rotation % 360;
-    
-    // LANDING CENTERED LOGIC: ensure it lands in center of slice
     const stopAngle = (360 - (targetSliceIndex * SLICE_DEGREE) - (SLICE_DEGREE / 2));
     const newRotation = rotation + extraSpins + ((stopAngle - currentRotMod + 360) % 360);
     
@@ -111,20 +191,21 @@ const SectorSpinStore: React.FC = () => {
         if (currentDrawIndex < 116) {
           const normalizedRotation = (newRotation - offset) % 360;
           const visualIndex = Math.floor((360 - (normalizedRotation % 360)) % 360 / SLICE_DEGREE);
-          
-          const prize = (side === 'top') 
-            ? VISUAL_WHEEL.find(s => s.id === getPrizeIdForIndex(currentDrawIndex))!
-            : VISUAL_WHEEL[visualIndex % VISUAL_WHEEL.length];
+          const prizeId = (side === 'top') ? SHUFFLED_DISTRIBUTION[currentDrawIndex] : VISUAL_WHEEL[visualIndex % VISUAL_WHEEL.length].id;
+          const prizeObj = VISUAL_WHEEL.find(s => s.id === prizeId) || VISUAL_WHEEL[4];
 
           results.push({ 
             side, 
-            result: prize, 
+            result: prizeObj, 
             customer: CUSTOMER_NAMES[currentDrawIndex], 
             time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
           });
         }
       });
 
+      // --- TRIGGER SPARKLE BOOM ---
+      triggerSparkle();
+      
       setActiveWinners(results);
       setHistory(prev => [...results, ...prev]);
     }, 4000);
@@ -132,24 +213,42 @@ const SectorSpinStore: React.FC = () => {
 
   return (
     <div className="bg-[#020617] min-h-screen text-slate-100 flex flex-col items-center p-4">
+      <div className="w-full max-w-6xl flex flex-wrap gap-4 justify-between items-center py-4 px-6 bg-white/5 rounded-2xl border border-white/10 mb-6 backdrop-blur-md">
+        <div className="flex items-center gap-3">
+          <Save size={18} className="text-sky-400" />
+          <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Save System</span>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={saveAsJSON} className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs font-bold transition-all border border-white/5 active:scale-95">
+            <FileJson size={14} className="text-yellow-500"/> JSON
+          </button>
+          <button onClick={saveAsExcelCSV} className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs font-bold transition-all border border-white/5 active:scale-95">
+            <FileSpreadsheet size={14} className="text-green-500"/> CSV
+          </button>
+          <div className="h-8 w-px bg-white/10 mx-2" />
+          <input type="file" ref={fileInputRef} onChange={restoreData} className="hidden" accept=".json" />
+          <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 px-4 py-2 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 rounded-lg text-xs font-bold transition-all border border-sky-500/20">
+            <RotateCcw size={14}/> Restore
+          </button>
+        </div>
+      </div>
+
       <nav className="w-full max-w-6xl flex justify-between items-center py-6 border-b border-white/5">
         <h1 className="font-black italic text-sky-500 text-2xl tracking-tighter flex items-center gap-3">
-          <div className="p-2 bg-sky-500/10 rounded-lg"><Cpu size={24} /></div>
-          OPPO ELITE 116
+          <Cpu size={24} /> OPPO ELITE 116
         </h1>
-        <div className="text-right">
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Draw Progress</p>
-          <p className="text-xl font-black text-sky-400">{history.length} <span className="text-slate-700">/ 116</span></p>
+        <div className="text-right font-black text-sky-400">
+          {history.length} <span className="text-slate-700">/ 116</span>
         </div>
       </nav>
 
-      <div className="relative mt-32 mb-32">
+      <div className="relative mt-32 mb-32 scale-90 md:scale-100">
         <Arrow side="top" color="#3b82f6" data={activeWinners.find(w => w.side === 'top')} />
         <Arrow side="right" color="#f59e0b" data={activeWinners.find(w => w.side === 'right')} />
         <Arrow side="bottom" color="#ef4444" data={activeWinners.find(w => w.side === 'bottom')} />
         <Arrow side="left" color="#10b981" data={activeWinners.find(w => w.side === 'left')} />
 
-        <div className="relative w-[320px] h-[320px] md:w-[500px] md:h-[500px] rounded-full p-2 bg-slate-800 shadow-[0_0_80px_rgba(0,0,0,0.8)]">
+        <div className="relative w-[320px] h-[320px] md:w-[500px] md:h-[500px] rounded-full p-2 bg-slate-800 shadow-[0_0_80px_rgba(59,130,246,0.3)]">
           <div className="w-full h-full rounded-full transition-transform duration-[4000ms] cubic-bezier(0.15, 0, 0.15, 1) overflow-hidden"
                style={{ transform: `rotate(${rotation}deg)` }}>
             <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
@@ -172,88 +271,48 @@ const SectorSpinStore: React.FC = () => {
             </svg>
           </div>
           <div className="absolute inset-0 m-auto w-20 h-20 bg-slate-950 rounded-full border-4 border-slate-700 shadow-2xl flex items-center justify-center z-20">
-            <Zap size={30} className="text-sky-400 fill-sky-400" />
+            <Zap size={30} className={isSpinning ? "text-yellow-400 animate-pulse" : "text-sky-400"} />
           </div>
         </div>
       </div>
 
       <button onClick={spinWheel} disabled={isSpinning || history.length >= 116}
               className="px-20 py-5 bg-sky-600 hover:bg-sky-500 rounded-xl font-black uppercase tracking-[0.4em] text-xs shadow-2xl transition-all active:scale-95 disabled:opacity-20 mb-20">
-        {isSpinning ? 'SYSTEM SPINNING...' : history.length >= 116 ? 'CAMPAIGN COMPLETE' : 'ENGAGE DRAW'}
+        {isSpinning ? 'SPINNING...' : history.length >= 116 ? 'FINISHED' : 'ENGAGE DRAW'}
       </button>
 
       <div className="w-full max-w-6xl mb-20">
-        <div className="flex items-center gap-3 mb-6">
-            <div className="p-2 bg-sky-500/10 rounded-lg text-sky-500"><History size={20}/></div>
-            <h2 className="text-xl font-black uppercase tracking-widest italic">Live Winner Dashboard</h2>
+        <h2 className="text-xl font-black uppercase tracking-widest italic mb-6 flex items-center gap-3"><Trophy className="text-yellow-500"/> Winners Log</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {history.map((winner, idx) => (
+            <div key={idx} className="bg-white/5 border border-white/10 p-5 rounded-2xl flex items-center justify-between animate-in fade-in slide-in-from-bottom-2 duration-500">
+              <div>
+                <p className="text-sm font-black text-white uppercase truncate max-w-[150px]">{winner.customer}</p>
+                <p className="text-[10px] text-slate-500 uppercase">{winner.side}</p>
+              </div>
+              <p className="text-xs font-black text-sky-400">{winner.result.label}</p>
+            </div>
+          ))}
         </div>
-        {history.length === 0 ? (
-            <div className="w-full p-12 border-2 border-dashed border-white/5 rounded-3xl flex flex-col items-center justify-center text-slate-600">
-                <Trophy size={48} className="mb-4 opacity-20"/>
-                <p className="font-bold uppercase tracking-widest text-sm text-center leading-relaxed">System Ready.<br/>Awaiting first elite engagement.</p>
-            </div>
-        ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {history.map((winner, idx) => (
-                    <div key={idx} className="bg-white/5 border border-white/10 p-5 rounded-2xl flex items-center justify-between group hover:bg-sky-500/10 hover:border-sky-500/30 transition-all">
-                        <div className="flex items-center gap-4">
-                            <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-sky-500">
-                                <User size={18}/>
-                            </div>
-                            <div>
-                                <p className="text-sm font-black text-white uppercase truncate max-w-[150px]">{winner.customer}</p>
-                                <div className="flex items-center gap-2 text-[10px] font-bold text-slate-500">
-                                    <Clock size={10}/> {winner.time} • {winner.side.toUpperCase()}
-                                </div>
-                            </div>
-                        </div>
-                        <div className="text-right">
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">Awarded</p>
-                            <p className="text-xs font-black text-sky-400 group-hover:text-sky-300 transition-colors">{winner.result.label}</p>
-                        </div>
-                    </div>
-                ))}
-            </div>
-        )}
       </div>
     </div>
   );
 };
 
-// --- SUB-COMPONENT ---
-interface ArrowProps {
-  side: 'top' | 'right' | 'bottom' | 'left';
-  color: string;
-  data: Winner | undefined;
-}
-
-const Arrow: React.FC<ArrowProps> = ({ side, color, data }) => {
-  const pos = {
+const Arrow: React.FC<{side: string, color: string, data: Winner | undefined}> = ({ side, color, data }) => {
+  const pos: any = {
     top: "top-[-110px] left-1/2 -translate-x-1/2 flex-col",
     bottom: "bottom-[-110px] left-1/2 -translate-x-1/2 flex-col-reverse",
     left: "left-[-190px] top-1/2 -translate-y-1/2 flex-row",
     right: "right-[-190px] top-1/2 -translate-y-1/2 flex-row-reverse",
   };
-
-  const triangleStyle: Record<string, React.CSSProperties> = {
-    top: { borderLeft: '12px solid transparent', borderRight: '12px solid transparent', borderTop: `16px solid ${color}`, marginTop: '-2px' },
-    bottom: { borderLeft: '12px solid transparent', borderRight: '12px solid transparent', borderBottom: `16px solid ${color}`, marginBottom: '-2px' },
-    left: { borderTop: '12px solid transparent', borderBottom: '12px solid transparent', borderLeft: `16px solid ${color}`, marginLeft: '-2px' },
-    right: { borderTop: '12px solid transparent', borderBottom: '12px solid transparent', borderRight: `16px solid ${color}`, marginRight: '-2px' }
-  };
-
   return (
     <div className={`absolute z-50 flex items-center justify-center transition-all duration-700 ${pos[side]} ${data ? 'opacity-100 scale-110' : 'opacity-30 scale-95'}`}>
-      <div className="bg-slate-900 border-2 px-5 py-3 rounded-xl min-w-[170px] text-center shadow-[0_10px_30px_rgba(0,0,0,0.5)]" style={{ borderColor: color }}>
-        <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">
-            {data ? "SECURED DRAW" : `${side.toUpperCase()} SECTOR`}
-        </p>
-        <p className="text-xs font-black text-white uppercase truncate max-w-[140px]">
-            {data ? data.customer : '---'}
-        </p>
+      <div className="bg-slate-900 border-2 px-5 py-3 rounded-xl min-w-[170px] text-center" style={{ borderColor: color }}>
+        <p className="text-[9px] font-black text-slate-500 uppercase">{data ? "WINNER" : side}</p>
+        <p className="text-xs font-black text-white uppercase truncate">{data ? data.customer : '---'}</p>
         {data && <p className="text-[10px] font-black text-sky-400 mt-1">{data.result.label}</p>}
       </div>
-      <div style={triangleStyle[side]} className="drop-shadow-xl" />
     </div>
   );
 };
