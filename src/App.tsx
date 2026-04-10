@@ -1,7 +1,23 @@
 import React, { useState } from 'react';
 import { Cpu, Zap, History, Trophy, User, Clock } from 'lucide-react';
 
-const CUSTOMER_NAMES = [
+// --- TYPES & INTERFACES ---
+interface VisualSlice {
+  label: string;
+  bg: string;
+  text: string;
+  id: string;
+}
+
+interface Winner {
+  side: string;
+  result: VisualSlice;
+  customer: string;
+  time: string;
+}
+
+// --- CONSTANTS ---
+const CUSTOMER_NAMES: string[] = [
   "ABHISHEK PATTANAIK", "AMIT KUMAR PANDA", "ASHIT KUMAR PATRA", "BAPI BEHERA", "BARSHA RANI NAYAK",
   "BIJAY KUMAR SENAPATI", "BIKASH JENA", "BISWAJEET DHAL", "BISWAJIT SAHOO", "BISWAKALYAN MOHANTY",
   "CHITARANJAN BEHURA", "DAMBARUDHAR SAHOO", "DEBU KUMAR DUTTA", "DILLIP KUMAR DAS", "DIPAK KUMAR DAS",
@@ -27,7 +43,7 @@ const CUSTOMER_NAMES = [
   "RINKU SHARMA", "SACHCHIDANAND SETH", "SIDHANTA SUNA", "SUNIL KUMAR NAYAK", "SURAJ KUMAR MOHAPATRA", "VIKASH PRASAD"
 ];
 
-const VISUAL_WHEEL = [
+const VISUAL_WHEEL: VisualSlice[] = [
   { label: "RENO 12 PRO", bg: "#3b82f6", text: "#fff", id: 'reno' },
   { label: "SPEAKER", bg: "#1e293b", text: "#fff", id: 'speaker' },
   { label: "BUDS 3 PRO+", bg: "#3b82f6", text: "#fff", id: 'buds' },
@@ -50,15 +66,15 @@ const VISUAL_WHEEL = [
   { label: "SANDWICH MAKER", bg: "#ffffff", text: "#000", id: 'sandwich' },
 ];
 
-const SectorSpinStore = () => {
-  const [isSpinning, setIsSpinning] = useState(false);
-  const [rotation, setRotation] = useState(0);
-  const [activeWinners, setActiveWinners] = useState([]);
-  const [history, setHistory] = useState([]);
+const SectorSpinStore: React.FC = () => {
+  const [isSpinning, setIsSpinning] = useState<boolean>(false);
+  const [rotation, setRotation] = useState<number>(0);
+  const [activeWinners, setActiveWinners] = useState<Winner[]>([]);
+  const [history, setHistory] = useState<Winner[]>([]);
 
   const SLICE_DEGREE = 360 / VISUAL_WHEEL.length;
 
-  const getPrizeIdForIndex = (index) => {
+  const getPrizeIdForIndex = (index: number): string => {
     if (index < 20) return 'speaker';
     if (index < 40) return 'sandwich';
     if (index < 70) return 'buds';
@@ -79,9 +95,7 @@ const SectorSpinStore = () => {
     const extraSpins = 360 * 8; 
     const currentRotMod = rotation % 360;
     
-    // LANDING LOGIC: 
-    // We target the center of the slice (targetSliceIndex * SLICE_DEGREE + SLICE_DEGREE/2)
-    // We subtract from 360 because the wheel spins clockwise
+    // LANDING CENTERED LOGIC: ensure it lands in center of slice
     const stopAngle = (360 - (targetSliceIndex * SLICE_DEGREE) - (SLICE_DEGREE / 2));
     const newRotation = rotation + extraSpins + ((stopAngle - currentRotMod + 360) % 360);
     
@@ -89,18 +103,17 @@ const SectorSpinStore = () => {
 
     setTimeout(() => {
       setIsSpinning(false);
-      const results = [];
+      const results: Winner[] = [];
       const pointers = { top: 0, right: 90, bottom: 180, left: 270 };
 
       Object.entries(pointers).forEach(([side, offset]) => {
         const currentDrawIndex = history.length + results.length;
         if (currentDrawIndex < 116) {
-          // Calculate which slice is at this specific pointer offset
           const normalizedRotation = (newRotation - offset) % 360;
           const visualIndex = Math.floor((360 - (normalizedRotation % 360)) % 360 / SLICE_DEGREE);
           
           const prize = (side === 'top') 
-            ? VISUAL_WHEEL.find(s => s.id === getPrizeIdForIndex(currentDrawIndex))
+            ? VISUAL_WHEEL.find(s => s.id === getPrizeIdForIndex(currentDrawIndex))!
             : VISUAL_WHEEL[visualIndex % VISUAL_WHEEL.length];
 
           results.push({ 
@@ -207,7 +220,14 @@ const SectorSpinStore = () => {
   );
 };
 
-const Arrow = ({ side, color, data }) => {
+// --- SUB-COMPONENT ---
+interface ArrowProps {
+  side: 'top' | 'right' | 'bottom' | 'left';
+  color: string;
+  data: Winner | undefined;
+}
+
+const Arrow: React.FC<ArrowProps> = ({ side, color, data }) => {
   const pos = {
     top: "top-[-110px] left-1/2 -translate-x-1/2 flex-col",
     bottom: "bottom-[-110px] left-1/2 -translate-x-1/2 flex-col-reverse",
@@ -215,7 +235,7 @@ const Arrow = ({ side, color, data }) => {
     right: "right-[-190px] top-1/2 -translate-y-1/2 flex-row-reverse",
   };
 
-  const triangleStyle = {
+  const triangleStyle: Record<string, React.CSSProperties> = {
     top: { borderLeft: '12px solid transparent', borderRight: '12px solid transparent', borderTop: `16px solid ${color}`, marginTop: '-2px' },
     bottom: { borderLeft: '12px solid transparent', borderRight: '12px solid transparent', borderBottom: `16px solid ${color}`, marginBottom: '-2px' },
     left: { borderTop: '12px solid transparent', borderBottom: '12px solid transparent', borderLeft: `16px solid ${color}`, marginLeft: '-2px' },
@@ -226,7 +246,7 @@ const Arrow = ({ side, color, data }) => {
     <div className={`absolute z-50 flex items-center justify-center transition-all duration-700 ${pos[side]} ${data ? 'opacity-100 scale-110' : 'opacity-30 scale-95'}`}>
       <div className="bg-slate-900 border-2 px-5 py-3 rounded-xl min-w-[170px] text-center shadow-[0_10px_30px_rgba(0,0,0,0.5)]" style={{ borderColor: color }}>
         <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">
-            {data ? "SECURED DRAW" : `${side} SECTOR`}
+            {data ? "SECURED DRAW" : `${side.toUpperCase()} SECTOR`}
         </p>
         <p className="text-xs font-black text-white uppercase truncate max-w-[140px]">
             {data ? data.customer : '---'}
