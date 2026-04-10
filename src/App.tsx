@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from 'react';
-import { Cpu, Zap, Trophy, CheckCircle2, Save, FolderOpen, FileSpreadsheet } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+// Removed Cpu, Trophy, and Download as they were unused
+import { Zap, Upload, FileJson, FileSpreadsheet } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 // --- TYPES ---
@@ -16,6 +17,8 @@ interface Winner {
   customer: string;
   time: string;
 }
+
+type PrizeKey = 'reno' | 'f27' | 'buds' | 'speaker' | 'sandwich' | 'none';
 
 // --- CONSTANTS ---
 const CUSTOMER_NAMES: string[] = [
@@ -44,13 +47,13 @@ const CUSTOMER_NAMES: string[] = [
   "RINKU SHARMA", "SACHCHIDANAND SETH", "SIDHANTA SUNA", "SUNIL KUMAR NAYAK", "SURAJ KUMAR MOHAPATRA", "VIKASH PRASAD"
 ];
 
-const PRIZE_MAP: Record<string, Omit<VisualSlice, 'id'>> = {
-  none: { label: "BETTER LUCK", bg: "#020617", text: "#fff" },
+const PRIZE_MAP: Record<PrizeKey, Omit<VisualSlice, 'id'>> = {
+  none: { label: "BETTER LUCK", bg: "#0f172a", text: "#fff" },
   reno: { label: "RENO 12 PRO", bg: "#3b82f6", text: "#fff" },
   f27: { label: "OPPO F27", bg: "#ef4444", text: "#fff" },
-  buds: { label: "BUDS 3 PRO+", bg: "#3b82f6", text: "#fff" },
-  speaker: { label: "SPEAKER", bg: "#1e293b", text: "#fff" },
-  sandwich: { label: "SANDWICH MAKER", bg: "#ffffff", text: "#000" },
+  buds: { label: "BUDS 3 PRO+", bg: "#06b6d4", text: "#fff" },
+  speaker: { label: "SPEAKER", bg: "#8b5cf6", text: "#fff" },
+  sandwich: { label: "SANDWICH MAKER", bg: "#fcd34d", text: "#000" },
 };
 
 const SectorSpinStore: React.FC = () => {
@@ -58,150 +61,123 @@ const SectorSpinStore: React.FC = () => {
   const [rotation, setRotation] = useState<number>(0);
   const [activeWinners, setActiveWinners] = useState<Winner[]>([]);
   const [history, setHistory] = useState<Winner[]>([]);
-  const [stock, setStock] = useState({
+  const [stock, setStock] = useState<Record<PrizeKey, number>>({
     reno: 3, f27: 7, buds: 30, speaker: 20, sandwich: 20, none: 36
   });
 
-  const dynamicWheel = useMemo(() => {
-    const slices: VisualSlice[] = [];
-    const keys = ["none", "reno", "f27", "buds", "speaker", "sandwich", "none", "buds", "reno", "speaker"];
-    for (let i = 0; i < 20; i++) {
-      const key = keys[i % keys.length];
-      slices.push({ ...PRIZE_MAP[key], id: key });
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const SLICE_DEGREE = 360 / 20;
+
+  const [wheelSlices, setWheelSlices] = useState<VisualSlice[]>(() => {
+    const keys: PrizeKey[] = ["none", "reno", "f27", "buds", "speaker", "sandwich", "none", "buds", "reno", "speaker"];
+    return Array.from({ length: 20 }, (_, i) => ({ ...PRIZE_MAP[keys[i % keys.length] as PrizeKey], id: keys[i % keys.length] }));
+  });
+
+  const exportData = async (format: 'json' | 'csv') => {
+    if (history.length === 0) return alert("No history to export.");
+    let content = "";
+    const suggestedName = `draw_backup_${new Date().getTime()}.${format}`;
+    if (format === 'json') {
+      content = JSON.stringify({ history, stock }, null, 2);
+    } else {
+      content = "Time,Customer,Prize,Station\n" + 
+                history.map(w => `${w.time},"${w.customer}","${w.result.label}","${w.side}"`).join("\n");
     }
-    return slices;
-  }, []);
 
-  const SLICE_DEGREE = 360 / dynamicWheel.length;
-
-  // --- SAVE, RESTORE & CSV LOGIC ---
-  const saveToFile = async () => {
-    const data = JSON.stringify({ history, stock, rotation }, null, 2);
-    const blob = new Blob([data], { type: 'application/json' });
-    try {
-      if ('showSaveFilePicker' in window) {
+    if ('showSaveFilePicker' in window) {
+      try {
         const handle = await (window as any).showSaveFilePicker({
-          suggestedName: `oppo_elite_draw_${new Date().toISOString().split('T')[0]}.json`,
-          types: [{ description: 'JSON File', accept: { 'application/json': ['.json'] } }],
+          suggestedName: suggestedName,
+          types: [{
+            description: format === 'json' ? 'JSON File' : 'CSV File',
+            accept: format === 'json' ? { 'application/json': ['.json'] } : { 'text/csv': ['.csv'] },
+          }],
         });
         const writable = await handle.createWritable();
-        await writable.write(blob);
+        await writable.write(content);
         await writable.close();
-      } else {
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = 'oppo_elite_draw_backup.json';
-        link.click();
+      } catch (err: any) {
+        if (err.name !== 'AbortError') console.error(err);
       }
-    } catch (err) { console.error("Save cancelled or failed", err); }
-  };
-
-  const saveToCSV = () => {
-    if (history.length === 0) {
-      alert("No records to export yet.");
-      return;
+    } else {
+      const blob = new Blob([content], { type: format === 'json' ? 'application/json' : 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = suggestedName; a.click();
     }
-
-    // Header for Winners
-    let csvContent = "WINNERS LOG\n";
-    csvContent += "Customer,Prize,Side,Time\n";
-    
-    history.forEach(w => {
-      csvContent += `"${w.customer}","${w.result.label}","${w.side}","${w.time}"\n`;
-    });
-
-    // Spacer
-    csvContent += "\nREMAINING STOCK\n";
-    csvContent += "Prize,Remaining\n";
-    Object.entries(stock).forEach(([id, count]) => {
-      csvContent += `"${PRIZE_MAP[id].label}","${count}"\n`;
-    });
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `oppo_winners_${new Date().toISOString().split('T')[0]}.csv`);
-    link.click();
   };
 
-  const restoreFromFile = async () => {
-    try {
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = '.json';
-      input.onchange = async (e) => {
-        const file = (e.target as HTMLInputElement).files?.[0];
-        if (!file) return;
-        const text = await file.text();
-        const imported = JSON.parse(text);
-        if (imported.history && imported.stock) {
-          setHistory(imported.history);
-          setStock(imported.stock);
-          setRotation(imported.rotation || 0);
-          setActiveWinners([]);
-          alert("Data Restored Successfully!");
+  const restoreData = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = JSON.parse(event.target?.result as string);
+        if (data.history && data.stock) {
+          setHistory(data.history);
+          setStock(data.stock);
+          alert("Session Restored Successfully!");
         }
-      };
-      input.click();
-    } catch (err) { alert("Invalid backup file."); }
+      } catch (err) {
+        alert("Invalid JSON file.");
+      }
+    };
+    reader.readAsText(file);
   };
 
   const spinWheel = () => {
-    if (isSpinning || history.length >= 116) return;
+    if (isSpinning || history.length >= CUSTOMER_NAMES.length) return;
     setIsSpinning(true);
 
-    const available = Object.entries(stock)
-      .filter(([_, count]) => count > 0)
-      .map(([id]) => id);
-    
-    const rightId = available[Math.floor(Math.random() * available.length)];
-    let leftId = 'none';
-    const remainingAfterRight = { ...stock, [rightId]: stock[rightId as keyof typeof stock] - 1 };
-    const stillAvailable = Object.entries(remainingAfterRight)
-      .filter(([_, count]) => count > 0)
-      .map(([id]) => id);
-    
-    if (stillAvailable.length > 0) {
-        leftId = stillAvailable[Math.floor(Math.random() * stillAvailable.length)];
-    }
+    const targets = [
+      { side: 'top', idx: 0 },
+      { side: 'right', idx: 5 },
+      { side: 'bottom', idx: 10 },
+      { side: 'left', idx: 15 }
+    ];
 
-    const targetRightIdx = 5;
-    const targetLeftIdx = 15;
+    let currentStock = { ...stock };
+    let tempSlices = [...wheelSlices];
+    const results: Winner[] = [];
 
-    dynamicWheel[targetRightIdx] = { ...PRIZE_MAP[rightId], id: rightId };
-    dynamicWheel[targetLeftIdx] = { ...PRIZE_MAP[leftId], id: leftId };
+    targets.forEach((t, i) => {
+      const prizePool: PrizeKey[] = [];
+      (Object.keys(currentStock) as PrizeKey[]).forEach(key => {
+        for (let count = 0; count < currentStock[key]; count++) {
+          prizePool.push(key);
+        }
+      });
 
+      const customerIdx = history.length + i;
+      
+      if (prizePool.length > 0 && customerIdx < CUSTOMER_NAMES.length) {
+        const randomIdx = Math.floor(Math.random() * prizePool.length);
+        const pickedId = prizePool[randomIdx];
+        
+        const newSlice = { ...PRIZE_MAP[pickedId], id: pickedId };
+        tempSlices[t.idx] = newSlice;
+        currentStock[pickedId]--;
+
+        results.push({
+          side: t.side,
+          result: newSlice,
+          customer: CUSTOMER_NAMES[customerIdx],
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        });
+      }
+    });
+
+    setWheelSlices(tempSlices);
     const extraSpins = 360 * 8;
     const currentRotMod = rotation % 360;
-    const stopAngle = (360 - (targetRightIdx * SLICE_DEGREE) - (SLICE_DEGREE / 2) + 90);
+    const stopAngle = (360 - (0 * SLICE_DEGREE) - (SLICE_DEGREE / 2));
     const finalRotation = rotation + extraSpins + ((stopAngle - currentRotMod + 360) % 360);
     
     setRotation(finalRotation);
 
     setTimeout(() => {
-      const results: Winner[] = [
-        {
-          side: 'right',
-          result: dynamicWheel[targetRightIdx],
-          customer: CUSTOMER_NAMES[history.length],
-          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        },
-        {
-          side: 'left',
-          result: dynamicWheel[targetLeftIdx],
-          customer: CUSTOMER_NAMES[history.length + 1],
-          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        }
-      ].filter(w => !!w.customer);
-
-      setStock(prev => {
-        const next = { ...prev };
-        results.forEach(r => { next[r.result.id as keyof typeof stock]--; });
-        return next;
-      });
-
+      setStock(currentStock);
       setIsSpinning(false);
       confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
       setActiveWinners(results);
@@ -210,120 +186,103 @@ const SectorSpinStore: React.FC = () => {
   };
 
   return (
-    <div className="bg-[#020617] min-h-screen text-slate-100 flex flex-col items-center p-4">
+    <div className="bg-[#020617] min-h-screen text-slate-100 flex flex-col items-center p-6 font-sans overflow-x-hidden">
       
-      {/* Utility Bar */}
-      <div className="w-full max-w-5xl flex justify-end gap-3 mb-4">
-        <button onClick={restoreFromFile} className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 rounded-lg text-xs font-bold transition-all border border-white/10">
-          <FolderOpen size={14} /> RESTORE JSON
-        </button>
-        <button onClick={saveToFile} className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 rounded-lg text-xs font-bold transition-all border border-white/10">
-          <Save size={14} /> SAVE JSON
-        </button>
-        <button onClick={saveToCSV} className="flex items-center gap-2 px-4 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg text-xs font-bold transition-all border border-emerald-500/20">
-          <FileSpreadsheet size={14} /> EXPORT CSV
-        </button>
-      </div>
-
-      {/* Live Inventory */}
-      <div className="w-full max-w-5xl grid grid-cols-2 md:grid-cols-6 gap-2 py-4 px-6 bg-white/5 rounded-2xl border border-white/10 mb-8 backdrop-blur-md">
-          {Object.entries(stock).map(([id, count]) => (
-            <PrizeStat key={id} 
-               label={PRIZE_MAP[id].label} 
-               count={count} 
-               color={id === 'reno' ? 'text-blue-400' : id === 'f27' ? 'text-red-400' : id === 'buds' ? 'text-sky-400' : id === 'none' ? 'text-slate-500' : 'text-slate-300'} 
-            />
-          ))}
-      </div>
-
-      <h1 className="font-black italic text-sky-500 text-3xl tracking-tighter flex items-center gap-3 mb-10 uppercase">
-          <Cpu size={32} className="animate-pulse" /> Oppo Elite 116 <span className="text-white/20 font-light">|</span> Dual Draw
-      </h1>
-
-      {/* Drawing Stage */}
-      <div className="relative mt-20 mb-32 scale-90 md:scale-100">
-        <Arrow side="right" color="#f59e0b" data={activeWinners.find(w => w.side === 'right')} />
-        <Arrow side="left" color="#10b981" data={activeWinners.find(w => w.side === 'left')} />
-
-        <div className="relative w-[340px] h-[340px] md:w-[500px] md:h-[500px] rounded-full p-4 bg-slate-800 shadow-[0_0_120px_rgba(59,130,246,0.15)] border-8 border-slate-900">
-          <div className="w-full h-full rounded-full transition-transform duration-[4000ms] cubic-bezier(0.15, 0, 0.15, 1) overflow-hidden"
-                style={{ transform: `rotate(${rotation}deg)` }}>
-            <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
-              {dynamicWheel.map((s, i) => {
-                const angle = i * SLICE_DEGREE;
-                const x1 = 50 + 50 * Math.cos(Math.PI * angle / 180);
-                const y1 = 50 + 50 * Math.sin(Math.PI * angle / 180);
-                const x2 = 50 + 50 * Math.cos(Math.PI * (angle + SLICE_DEGREE) / 180);
-                const y2 = 50 + 50 * Math.sin(Math.PI * (angle + SLICE_DEGREE) / 180);
-                return (
-                  <g key={`${i}-${s.id}`}>
-                    <path d={`M 50 50 L ${x1} ${y1} A 50 50 0 0 1 ${x2} ${y2} Z`} fill={s.bg} stroke="rgba(0,0,0,0.3)" strokeWidth="0.05" />
-                    <text x="78" y="50" fill={s.text} fontSize="2.4" fontWeight="900" textAnchor="middle" 
-                          transform={`rotate(${angle + SLICE_DEGREE / 2} 50 50)`}>
-                      {s.label}
-                    </text>
-                  </g>
-                );
-              })}
-            </svg>
-          </div>
-          <div className="absolute inset-0 m-auto w-20 h-20 bg-slate-950 rounded-full border-4 border-slate-700 shadow-2xl flex items-center justify-center z-20">
-            <Zap size={36} className={isSpinning ? "text-yellow-400 animate-bounce" : "text-sky-400"} />
-          </div>
+      <div className="w-full max-w-5xl flex flex-wrap justify-between items-center gap-4 mb-6">
+        <div className="flex gap-2">
+            <button onClick={() => exportData('csv')} className="flex items-center gap-2 px-3 py-1.5 bg-emerald-600/20 text-emerald-400 border border-emerald-600/30 rounded-lg text-xs font-bold hover:bg-emerald-600/30 transition-all">
+                <FileSpreadsheet size={14}/> EXPORT CSV
+            </button>
+            <button onClick={() => exportData('json')} className="flex items-center gap-2 px-3 py-1.5 bg-amber-600/20 text-amber-400 border border-amber-600/30 rounded-lg text-xs font-bold hover:bg-amber-600/30 transition-all">
+                <FileJson size={14}/> BACKUP JSON
+            </button>
+        </div>
+        
+        <div className="flex items-center gap-2">
+            <input type="file" accept=".json" ref={fileInputRef} onChange={restoreData} className="hidden" />
+            <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 px-3 py-1.5 bg-sky-600/20 text-sky-400 border border-sky-600/30 rounded-lg text-xs font-bold hover:bg-sky-600/30 transition-all">
+                <Upload size={14}/> RESTORE SESSION
+            </button>
         </div>
       </div>
 
-      <button onClick={spinWheel} disabled={isSpinning || history.length >= 116}
-              className="px-20 py-6 bg-sky-600 hover:bg-sky-500 rounded-2xl font-black uppercase tracking-[0.5em] text-sm shadow-[0_20px_50px_rgba(2,132,199,0.3)] transition-all active:scale-95 disabled:opacity-20 mb-20 group">
-        <span className="group-hover:scale-110 transition-transform inline-block">
-          {isSpinning ? 'Synchronizing...' : 'Trigger Dual Spin'}
-        </span>
-      </button>
-
-      {/* Winners Log */}
-      <div className="w-full max-w-6xl mb-32">
-        <h2 className="text-2xl font-black uppercase tracking-widest italic flex items-center gap-3 mb-8 border-b border-white/10 pb-4">
-          <Trophy className="text-yellow-500" size={28}/> Elite Winner Records
-        </h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {history.map((winner, idx) => (
-            <div key={idx} className="bg-slate-900/50 backdrop-blur-sm border-l-4 p-4 rounded-r-xl flex flex-col gap-2 relative overflow-hidden group hover:bg-slate-800 transition-colors" style={{ borderColor: winner.result.bg }}>
-              <span className="text-[10px] font-bold text-slate-500 uppercase">{winner.side} Station</span>
-              <p className="text-sm font-black text-white uppercase group-hover:text-sky-400 transition-colors">{winner.customer}</p>
-              <p className="text-xs font-bold py-1 px-2 rounded inline-block self-start shadow-sm" style={{ backgroundColor: winner.result.bg, color: winner.result.text }}>
-                {winner.result.label}
-              </p>
-              <CheckCircle2 size={40} className="absolute -right-2 -bottom-2 text-white/5 group-hover:text-white/10 transition-colors" />
+      <div className="w-full max-w-5xl grid grid-cols-3 md:grid-cols-6 gap-4 p-4 bg-slate-900/50 rounded-2xl border border-white/10 mb-8 shadow-xl">
+          {(Object.keys(stock) as PrizeKey[]).map((id) => (
+            <div key={id} className="text-center border-r border-white/5 last:border-0">
+              <p className="text-[9px] text-slate-500 uppercase font-black">{PRIZE_MAP[id].label}</p>
+              <p className="text-xl font-black text-sky-400">{stock[id]}</p>
             </div>
           ))}
+      </div>
+
+      <div className="relative my-32 scale-90 md:scale-100">
+        <Arrow side="top" color="#f87171" data={activeWinners.find(w => w.side === 'top')} />
+        <Arrow side="bottom" color="#60a5fa" data={activeWinners.find(w => w.side === 'bottom')} />
+        <Arrow side="right" color="#fbbf24" data={activeWinners.find(w => w.side === 'right')} />
+        <Arrow side="left" color="#34d399" data={activeWinners.find(w => w.side === 'left')} />
+
+        <div className="relative w-[420px] h-[420px] rounded-full p-3 bg-slate-800 border-[10px] border-slate-900 shadow-2xl">
+          <div className="w-full h-full rounded-full transition-transform duration-[4000ms] cubic-bezier(0.15, 0, 0.15, 1)"
+                style={{ transform: `rotate(${rotation}deg)` }}>
+            <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
+                {wheelSlices.map((s, i) => {
+                    const angle = i * SLICE_DEGREE;
+                    const x1 = 50 + 50 * Math.cos(Math.PI * angle / 180);
+                    const y1 = 50 + 50 * Math.sin(Math.PI * angle / 180);
+                    const x2 = 50 + 50 * Math.cos(Math.PI * (angle + SLICE_DEGREE) / 180);
+                    const y2 = 50 + 50 * Math.sin(Math.PI * (angle + SLICE_DEGREE) / 180);
+                    return (
+                        <g key={`${i}-${s.id}`}>
+                            <path d={`M 50 50 L ${x1} ${y1} A 50 50 0 0 1 ${x2} ${y2} Z`} fill={s.bg} stroke="#020617" strokeWidth="0.2" />
+                            <text x="75" y="50" fill={s.text} fontSize="2.2" fontWeight="900" textAnchor="middle" transform={`rotate(${angle + SLICE_DEGREE / 2} 50 50)`}>
+                                {s.label}
+                            </text>
+                        </g>
+                    );
+                })}
+            </svg>
+          </div>
+          <div className="absolute inset-0 m-auto w-16 h-16 bg-slate-950 rounded-full border-4 border-slate-700 z-20 flex items-center justify-center">
+            <Zap className={isSpinning ? "text-yellow-400 animate-pulse" : "text-sky-400"} />
+          </div>
         </div>
+      </div>
+
+      <button onClick={spinWheel} disabled={isSpinning || history.length >= CUSTOMER_NAMES.length} className="px-12 py-5 bg-sky-600 rounded-2xl font-black uppercase tracking-widest hover:bg-sky-500 transition-all active:scale-95 disabled:opacity-20">
+        {isSpinning ? 'SPINNING...' : 'START QUAD DRAW'}
+      </button>
+
+      <div className="w-full max-w-6xl mt-20 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pb-20">
+          {history.map((w, i) => (
+            <div key={i} className="bg-slate-900 p-4 rounded-xl border-l-4 shadow-lg" style={{ borderColor: w.result.bg }}>
+              <p className="text-[10px] text-slate-500 font-bold uppercase mb-1">{w.side} Station</p>
+              <p className="font-bold text-white text-sm truncate uppercase">{w.customer}</p>
+              <p className="text-[9px] font-black mt-2 inline-block px-2 py-1 rounded" style={{ backgroundColor: w.result.bg, color: w.result.text }}>{w.result.label}</p>
+            </div>
+          ))}
       </div>
     </div>
   );
 };
 
-const PrizeStat: React.FC<{label: string, count: number, color: string}> = ({ label, count, color }) => (
-  <div className="text-center p-2 border-r border-white/5 last:border-0">
-    <p className="text-[9px] font-bold text-slate-500 uppercase truncate leading-tight">{label}</p>
-    <p className={`text-base font-black ${color}`}>{count}</p>
-  </div>
-);
-
 const Arrow: React.FC<{side: string, color: string, data: Winner | undefined}> = ({ side, color, data }) => {
-  const pos: any = {
-    left: "left-[-240px] top-1/2 -translate-y-1/2 flex-row",
-    right: "right-[-240px] top-1/2 -translate-y-1/2 flex-row-reverse",
+  const layouts: Record<string, string> = {
+    top: "bottom-[102%] left-1/2 -translate-x-1/2 flex-col",
+    bottom: "top-[102%] left-1/2 -translate-x-1/2 flex-col-reverse",
+    left: "right-[102%] top-1/2 -translate-y-1/2 flex-row",
+    right: "left-[102%] top-1/2 -translate-y-1/2 flex-row-reverse"
   };
-  const icons: any = { left: "▶", right: "◀" };
+  
+  const arrows: Record<string, string> = { top: "▼", bottom: "▲", left: "▶", right: "◀" };
 
   return (
-    <div className={`absolute z-50 flex items-center justify-center transition-all duration-700 ${pos[side]} ${data ? 'opacity-100 scale-105' : 'opacity-40'}`}>
-      <div className="bg-slate-950/90 border-2 px-6 py-5 rounded-2xl min-w-[210px] text-center shadow-[0_10px_30px_rgba(0,0,0,0.5)] backdrop-blur-md" style={{ borderColor: color }}>
-        <p className="text-[10px] font-black text-slate-500 uppercase mb-1">{data ? "Assigned" : side}</p>
-        <p className="text-sm font-black text-white uppercase truncate">{data ? data.customer : '---'}</p>
-        {data && <p className="text-[10px] font-black mt-2 inline-block px-3 py-1 rounded-full uppercase" style={{ backgroundColor: data.result.bg, color: data.result.text }}>{data.result.label}</p>}
+    <div className={`absolute flex items-center transition-all duration-700 ${layouts[side]} ${data ? 'opacity-100 scale-110' : 'opacity-20 scale-90'}`}>
+      <div className="bg-slate-950 border-2 p-4 rounded-2xl min-w-[160px] text-center shadow-2xl" style={{ borderColor: color }}>
+        <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest">{side}</p>
+        <p className="text-xs font-black text-white truncate max-w-[140px] uppercase">{data?.customer || 'Waiting...'}</p>
+        {data && <p className="text-[8px] font-bold mt-1 uppercase px-2 py-0.5 rounded" style={{ backgroundColor: data.result.bg, color: data.result.text }}>{data.result.label}</p>}
       </div>
-      <div className="text-3xl font-black mx-4 animate-pulse" style={{ color }}>{icons[side]}</div>
+      <div className="text-2xl m-2" style={{ color }}>{arrows[side]}</div>
     </div>
   );
 };
