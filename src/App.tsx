@@ -1,19 +1,7 @@
-import { useState, useEffect } from 'react';
-import { User, Gift, RotateCw } from 'lucide-react';
+import React, { useState } from 'react';
+import { Cpu, Zap, History, Trophy, User, Clock } from 'lucide-react';
 
-// 1. Define Types to fix TS2345 and TS2339 errors
-interface Participant {
-  id: number;
-  name: string;
-  used: boolean;
-}
-
-interface DrawResult extends Participant {
-  prize: string;
-}
-
-// Full Participant List from image
-const PARTICIPANTS: string[] = [
+const CUSTOMER_NAMES = [
   "ABHISHEK PATTANAIK", "AMIT KUMAR PANDA", "ASHIT KUMAR PATRA", "BAPI BEHERA", "BARSHA RANI NAYAK",
   "BIJAY KUMAR SENAPATI", "BIKASH JENA", "BISWAJEET DHAL", "BISWAJIT SAHOO", "BISWAKALYAN MOHANTY",
   "CHITARANJAN BEHURA", "DAMBARUDHAR SAHOO", "DEBU KUMAR DUTTA", "DILLIP KUMAR DAS", "DIPAK KUMAR DAS",
@@ -35,167 +23,219 @@ const PARTICIPANTS: string[] = [
   "ANIL KUMAR SANBAD", "ASHISH KALSAI", "BANSHI DHAR DAS", "BANSHI LOCHAN BARIK", "BINAYA KUMAR NAYAK",
   "BISWAJEET BISWAS", "BRUNDAWAN DAS", "DAVID MISHRA", "KISHORI MAHAPATRA", "KUNDAN NAIK",
   "MANOJ KUMAR SAHU", "MANORANJAN SAHOO", "MUNA BANCHHOR", "PINTU DEHURY", "PRAMOD KUMAR SAHOO",
-  "PRANAB KUMAR JYOTISH", "PURUSHOTTAM BAGARTI", "RAJENDRA NARAYAN SINGH", "RAJU MEHETA", "RAKESH KARA",
+  "PRANAB KUMAR JYOTISH", "PURUSOTTAM BAGARTI", "RAJENDRA NARAYAN SINGH", "RAJU MEHETA", "RAKESH KARA",
   "RINKU SHARMA", "SACHCHIDANAND SETH", "SIDHANTA SUNA", "SUNIL KUMAR NAYAK", "SURAJ KUMAR MOHAPATRA", "VIKASH PRASAD"
 ];
 
-// Gift List from image
-const GIFT_POOL_DATA: string[] = [
-  ...Array(20).fill("SPEAKER"),
-  ...Array(20).fill("SANDWICH MAKER"),
-  ...Array(30).fill("BUDS 3 PRO+"),
-  ...Array(3).fill("RENO 12 PRO"),
-  ...Array(7).fill("F27")
+const VISUAL_WHEEL = [
+  { label: "RENO 12 PRO", bg: "#3b82f6", text: "#fff", id: 'reno' },
+  { label: "SPEAKER", bg: "#1e293b", text: "#fff", id: 'speaker' },
+  { label: "BUDS 3 PRO+", bg: "#3b82f6", text: "#fff", id: 'buds' },
+  { label: "SANDWICH MAKER", bg: "#ffffff", text: "#000", id: 'sandwich' },
+  { label: "BETTER LUCK", bg: "#020617", text: "#fff", id: 'none' },
+  { label: "OPPO F27", bg: "#ef4444", text: "#fff", id: 'f27' },
+  { label: "SPEAKER", bg: "#1e293b", text: "#fff", id: 'speaker' },
+  { label: "BUDS 3 PRO+", bg: "#3b82f6", text: "#fff", id: 'buds' },
+  { label: "BETTER LUCK", bg: "#020617", text: "#fff", id: 'none' },
+  { label: "SANDWICH MAKER", bg: "#ffffff", text: "#000", id: 'sandwich' },
+  { label: "RENO 12 PRO", bg: "#3b82f6", text: "#fff", id: 'reno' },
+  { label: "SPEAKER", bg: "#1e293b", text: "#fff", id: 'speaker' },
+  { label: "BUDS 3 PRO+", bg: "#3b82f6", text: "#fff", id: 'buds' },
+  { label: "SANDWICH MAKER", bg: "#ffffff", text: "#000", id: 'sandwich' },
+  { label: "BETTER LUCK", bg: "#020617", text: "#fff", id: 'none' },
+  { label: "OPPO F27", bg: "#ef4444", text: "#fff", id: 'f27' },
+  { label: "SPEAKER", bg: "#1e293b", text: "#fff", id: 'speaker' },
+  { label: "BUDS 3 PRO+", bg: "#3b82f6", text: "#fff", id: 'buds' },
+  { label: "BETTER LUCK", bg: "#020617", text: "#fff", id: 'none' },
+  { label: "SANDWICH MAKER", bg: "#ffffff", text: "#000", id: 'sandwich' },
 ];
 
-// Wheel Colors/Labels from image
-const SECTORS = [
-  { label: "WATCH", color: "#4a86e8", text: "white" },
-  { label: "CAMERA", color: "#e03a3e", text: "white" },
-  { label: "SPEAKER", color: "#0a0a0a", text: "white" },
-  { label: "MOUSE", color: "#ffffff", text: "black" },
-  { label: "CONSOLE", color: "#4a86e8", text: "white" },
-  { label: "POWER", color: "#e03a3e", text: "white" },
-  { label: "KEYS", color: "#0a0a0a", text: "white" },
-  { label: "LAPTOP", color: "#e03a3e", text: "white" },
-  { label: "PHONE", color: "#0a0a0a", text: "white" },
-  { label: "AUDIO", color: "#ffffff", text: "black" },
-];
-
-export default function OppoLuckyDraw() {
-  const [mustSpin, setMustSpin] = useState(false);
+const SectorSpinStore = () => {
+  const [isSpinning, setIsSpinning] = useState(false);
   const [rotation, setRotation] = useState(0);
-  
-  // FIXED: Explicitly type these arrays to avoid 'never[]' errors
-  const [participantPool, setParticipantPool] = useState<Participant[]>([]);
-  const [giftPool, setGiftPool] = useState<string[]>([]);
-  const [winners, setWinners] = useState<DrawResult[]>([]);
-  const [history, setHistory] = useState<DrawResult[]>([]);
+  const [activeWinners, setActiveWinners] = useState([]);
+  const [history, setHistory] = useState([]);
 
-  useEffect(() => {
-    setParticipantPool(PARTICIPANTS.map((name, i) => ({ id: i, name, used: false })));
-    setGiftPool([...GIFT_POOL_DATA].sort(() => Math.random() - 0.5));
-  }, []);
+  const SLICE_DEGREE = 360 / VISUAL_WHEEL.length;
+
+  const getPrizeIdForIndex = (index) => {
+    if (index < 20) return 'speaker';
+    if (index < 40) return 'sandwich';
+    if (index < 70) return 'buds';
+    if (index < 73) return 'reno';
+    if (index < 80) return 'f27';
+    return 'none';
+  };
 
   const spinWheel = () => {
-    const available = participantPool.filter(p => !p.used);
-    if (mustSpin || available.length < 4) return;
+    if (isSpinning || history.length >= 116) return;
+    setIsSpinning(true);
+    
+    const primaryIndex = history.length;
+    const targetPrizeId = getPrizeIdForIndex(primaryIndex);
+    const matchingSlices = VISUAL_WHEEL.map((s, i) => s.id === targetPrizeId ? i : -1).filter(i => i !== -1);
+    const targetSliceIndex = matchingSlices[Math.floor(Math.random() * matchingSlices.length)];
 
-    setMustSpin(true);
-    setWinners([]);
-
-    const newDegrees = rotation + (360 * 10) + Math.floor(Math.random() * 360);
-    setRotation(newDegrees);
+    const extraSpins = 360 * 8; 
+    const currentRotMod = rotation % 360;
+    
+    // LANDING LOGIC: 
+    // We target the center of the slice (targetSliceIndex * SLICE_DEGREE + SLICE_DEGREE/2)
+    // We subtract from 360 because the wheel spins clockwise
+    const stopAngle = (360 - (targetSliceIndex * SLICE_DEGREE) - (SLICE_DEGREE / 2));
+    const newRotation = rotation + extraSpins + ((stopAngle - currentRotMod + 360) % 360);
+    
+    setRotation(newRotation);
 
     setTimeout(() => {
-      const selected = [...available].sort(() => 0.5 - Math.random()).slice(0, 4);
-      
-      const drawResults: DrawResult[] = selected.map(person => {
-        const prize = giftPool.length > 0 ? giftPool[0] : "BETTER LUCK NEXT TIME";
-        if (giftPool.length > 0) setGiftPool(prev => prev.slice(1));
-        return { ...person, prize };
+      setIsSpinning(false);
+      const results = [];
+      const pointers = { top: 0, right: 90, bottom: 180, left: 270 };
+
+      Object.entries(pointers).forEach(([side, offset]) => {
+        const currentDrawIndex = history.length + results.length;
+        if (currentDrawIndex < 116) {
+          // Calculate which slice is at this specific pointer offset
+          const normalizedRotation = (newRotation - offset) % 360;
+          const visualIndex = Math.floor((360 - (normalizedRotation % 360)) % 360 / SLICE_DEGREE);
+          
+          const prize = (side === 'top') 
+            ? VISUAL_WHEEL.find(s => s.id === getPrizeIdForIndex(currentDrawIndex))
+            : VISUAL_WHEEL[visualIndex % VISUAL_WHEEL.length];
+
+          results.push({ 
+            side, 
+            result: prize, 
+            customer: CUSTOMER_NAMES[currentDrawIndex], 
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
+          });
+        }
       });
 
-      // TS2339 fix: TypeScript now knows 'used' exists on Participant
-      setParticipantPool(prev => prev.map(p => 
-        drawResults.find(r => r.id === p.id) ? { ...p, used: true } : p
-      ));
-
-      setWinners(drawResults);
-      setHistory(prev => [...drawResults, ...prev]);
-      setMustSpin(false);
+      setActiveWinners(results);
+      setHistory(prev => [...results, ...prev]);
     }, 4000);
   };
 
   return (
-    <div className="min-h-screen bg-[#020617] text-white p-8 flex flex-col items-center">
-      <div className="w-full max-w-6xl flex justify-between items-center mb-10 border-b border-white/10 pb-4">
-        <h1 className="text-xl font-black italic tracking-tighter text-blue-500 uppercase">
-          OPPO LUCKY DRAW 2026
+    <div className="bg-[#020617] min-h-screen text-slate-100 flex flex-col items-center p-4">
+      <nav className="w-full max-w-6xl flex justify-between items-center py-6 border-b border-white/5">
+        <h1 className="font-black italic text-sky-500 text-2xl tracking-tighter flex items-center gap-3">
+          <div className="p-2 bg-sky-500/10 rounded-lg"><Cpu size={24} /></div>
+          OPPO ELITE 116
         </h1>
-        <div className="bg-blue-600/20 px-4 py-1 rounded-full border border-blue-500/30 text-[10px] font-bold text-blue-400">
-          GIFTS LEFT: {giftPool.length} / 80
+        <div className="text-right">
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Draw Progress</p>
+          <p className="text-xl font-black text-sky-400">{history.length} <span className="text-slate-700">/ 116</span></p>
         </div>
-      </div>
+      </nav>
 
-      <div className="flex flex-col lg:flex-row gap-20 items-center justify-center w-full max-w-7xl">
-        <div className="flex flex-col items-center gap-10">
-          <div className="relative flex items-center justify-center w-[340px] h-[340px] lg:w-[520px] lg:h-[520px]">
-            {winners.length === 4 && (
-              <div className="absolute inset-0 z-40 pointer-events-none">
-                <WinnerTag result={winners[0]} pos="top-[-30px] left-1/2 -translate-x-1/2" />
-                <WinnerTag result={winners[1]} pos="bottom-[-30px] left-1/2 -translate-x-1/2" />
-                <WinnerTag result={winners[2]} pos="left-[-40px] top-1/2 -translate-y-1/2" />
-                <WinnerTag result={winners[3]} pos="right-[-40px] top-1/2 -translate-y-1/2" />
-              </div>
-            )}
+      <div className="relative mt-32 mb-32">
+        <Arrow side="top" color="#3b82f6" data={activeWinners.find(w => w.side === 'top')} />
+        <Arrow side="right" color="#f59e0b" data={activeWinners.find(w => w.side === 'right')} />
+        <Arrow side="bottom" color="#ef4444" data={activeWinners.find(w => w.side === 'bottom')} />
+        <Arrow side="left" color="#10b981" data={activeWinners.find(w => w.side === 'left')} />
 
-            <div 
-              className="w-full h-full rounded-full border-[10px] border-black shadow-2xl relative overflow-hidden transition-all duration-[4000ms] cubic-bezier(0.1, 0, 0.1, 1)"
-              style={{ transform: `rotate(${rotation}deg)` }}
-            >
-              {SECTORS.map((s, i) => {
-                const step = 360 / SECTORS.length;
+        <div className="relative w-[320px] h-[320px] md:w-[500px] md:h-[500px] rounded-full p-2 bg-slate-800 shadow-[0_0_80px_rgba(0,0,0,0.8)]">
+          <div className="w-full h-full rounded-full transition-transform duration-[4000ms] cubic-bezier(0.15, 0, 0.15, 1) overflow-hidden"
+               style={{ transform: `rotate(${rotation}deg)` }}>
+            <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
+              {VISUAL_WHEEL.map((s, i) => {
+                const angle = i * SLICE_DEGREE;
+                const x1 = 50 + 50 * Math.cos(Math.PI * angle / 180);
+                const y1 = 50 + 50 * Math.sin(Math.PI * angle / 180);
+                const x2 = 50 + 50 * Math.cos(Math.PI * (angle + SLICE_DEGREE) / 180);
+                const y2 = 50 + 50 * Math.sin(Math.PI * (angle + SLICE_DEGREE) / 180);
                 return (
-                  <div key={i} className="absolute inset-0">
-                    <div 
-                      className="absolute top-0 left-1/2 w-1/2 h-1/2 origin-bottom-left"
-                      style={{ backgroundColor: s.color, transform: `rotate(${i * step}deg) skewY(-${90 - step}deg)` }}
-                    />
-                    <div 
-                      className="absolute top-0 left-1/2 w-[80px] h-1/2 -translate-x-1/2 origin-bottom flex flex-col items-center pt-8 lg:pt-14"
-                      style={{ transform: `rotate(${i * step + step / 2}deg)` }}
-                    >
-                      <span className={`font-black text-[9px] lg:text-[11px] uppercase ${s.text === 'black' ? 'text-black' : 'text-white'}`} style={{ writingMode: 'vertical-rl', textOrientation: 'upright' }}>
-                        {s.label}
-                      </span>
-                    </div>
-                  </div>
+                  <g key={i}>
+                    <path d={`M 50 50 L ${x1} ${y1} A 50 50 0 0 1 ${x2} ${y2} Z`} fill={s.bg} stroke="#000" strokeWidth="0.1" />
+                    <text x="75" y="50" fill={s.text} fontSize="2.2" fontWeight="900" textAnchor="middle" 
+                          transform={`rotate(${angle + SLICE_DEGREE / 2} 50 50)`}>
+                      {s.label}
+                    </text>
+                  </g>
                 );
               })}
-            </div>
-            <div className="absolute z-10 w-20 h-20 rounded-full bg-[#020617] border-4 border-[#1e293b] flex items-center justify-center">
-              <div className="w-5 h-5 bg-blue-600 rounded-full animate-pulse" />
-            </div>
+            </svg>
           </div>
-
-          <button 
-            onClick={spinWheel}
-            disabled={mustSpin}
-            className="flex items-center gap-3 px-20 py-5 bg-blue-600 rounded-2xl font-black uppercase tracking-[0.4em] text-black hover:bg-blue-400 transition-all shadow-xl disabled:bg-neutral-800 disabled:text-neutral-500"
-          >
-            <RotateCw size={20} className={mustSpin ? "animate-spin" : ""} />
-            {mustSpin ? "DRAWING..." : "ENGAGE CIRCUIT"}
-          </button>
-        </div>
-
-        <div className="w-full lg:w-[400px] bg-slate-900/50 border border-white/5 rounded-[2rem] p-8 h-[520px] flex flex-col backdrop-blur-md">
-          <h2 className="text-[10px] font-black uppercase tracking-widest text-neutral-500 mb-6">RECENT ACTIVITY</h2>
-          <div className="flex-1 overflow-y-auto space-y-3 pr-2">
-            {history.map((h, idx) => (
-              <div key={idx} className="bg-white/5 p-4 rounded-xl flex items-center justify-between border border-white/5">
-                <div className="flex items-center gap-3">
-                  <User size={14} className="text-blue-500" />
-                  <span className="text-xs font-bold text-white truncate w-32">{h.name}</span>
-                </div>
-                <div className="flex items-center gap-2 text-[10px] font-black text-blue-400 uppercase">
-                  <Gift size={12} />
-                  {h.prize}
-                </div>
-              </div>
-            ))}
+          <div className="absolute inset-0 m-auto w-20 h-20 bg-slate-950 rounded-full border-4 border-slate-700 shadow-2xl flex items-center justify-center z-20">
+            <Zap size={30} className="text-sky-400 fill-sky-400" />
           </div>
         </div>
       </div>
-    </div>
-  );
-}
 
-function WinnerTag({ result, pos }: { result: DrawResult; pos: string }) {
-  return (
-    <div className={`absolute ${pos} bg-black/95 border-2 border-blue-500 px-8 py-3 rounded-xl shadow-2xl z-50 animate-bounce`}>
-      <p className="text-[10px] font-black text-white text-center uppercase">{result.name}</p>
-      <p className="text-[9px] font-bold text-blue-400 text-center uppercase mt-1">{result.prize}</p>
+      <button onClick={spinWheel} disabled={isSpinning || history.length >= 116}
+              className="px-20 py-5 bg-sky-600 hover:bg-sky-500 rounded-xl font-black uppercase tracking-[0.4em] text-xs shadow-2xl transition-all active:scale-95 disabled:opacity-20 mb-20">
+        {isSpinning ? 'SYSTEM SPINNING...' : history.length >= 116 ? 'CAMPAIGN COMPLETE' : 'ENGAGE DRAW'}
+      </button>
+
+      <div className="w-full max-w-6xl mb-20">
+        <div className="flex items-center gap-3 mb-6">
+            <div className="p-2 bg-sky-500/10 rounded-lg text-sky-500"><History size={20}/></div>
+            <h2 className="text-xl font-black uppercase tracking-widest italic">Live Winner Dashboard</h2>
+        </div>
+        {history.length === 0 ? (
+            <div className="w-full p-12 border-2 border-dashed border-white/5 rounded-3xl flex flex-col items-center justify-center text-slate-600">
+                <Trophy size={48} className="mb-4 opacity-20"/>
+                <p className="font-bold uppercase tracking-widest text-sm text-center leading-relaxed">System Ready.<br/>Awaiting first elite engagement.</p>
+            </div>
+        ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {history.map((winner, idx) => (
+                    <div key={idx} className="bg-white/5 border border-white/10 p-5 rounded-2xl flex items-center justify-between group hover:bg-sky-500/10 hover:border-sky-500/30 transition-all">
+                        <div className="flex items-center gap-4">
+                            <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-sky-500">
+                                <User size={18}/>
+                            </div>
+                            <div>
+                                <p className="text-sm font-black text-white uppercase truncate max-w-[150px]">{winner.customer}</p>
+                                <div className="flex items-center gap-2 text-[10px] font-bold text-slate-500">
+                                    <Clock size={10}/> {winner.time} • {winner.side.toUpperCase()}
+                                </div>
+                            </div>
+                        </div>
+                        <div className="text-right">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">Awarded</p>
+                            <p className="text-xs font-black text-sky-400 group-hover:text-sky-300 transition-colors">{winner.result.label}</p>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        )}
+      </div>
     </div>
   );
-}
+};
+
+const Arrow = ({ side, color, data }) => {
+  const pos = {
+    top: "top-[-110px] left-1/2 -translate-x-1/2 flex-col",
+    bottom: "bottom-[-110px] left-1/2 -translate-x-1/2 flex-col-reverse",
+    left: "left-[-190px] top-1/2 -translate-y-1/2 flex-row",
+    right: "right-[-190px] top-1/2 -translate-y-1/2 flex-row-reverse",
+  };
+
+  const triangleStyle = {
+    top: { borderLeft: '12px solid transparent', borderRight: '12px solid transparent', borderTop: `16px solid ${color}`, marginTop: '-2px' },
+    bottom: { borderLeft: '12px solid transparent', borderRight: '12px solid transparent', borderBottom: `16px solid ${color}`, marginBottom: '-2px' },
+    left: { borderTop: '12px solid transparent', borderBottom: '12px solid transparent', borderLeft: `16px solid ${color}`, marginLeft: '-2px' },
+    right: { borderTop: '12px solid transparent', borderBottom: '12px solid transparent', borderRight: `16px solid ${color}`, marginRight: '-2px' }
+  };
+
+  return (
+    <div className={`absolute z-50 flex items-center justify-center transition-all duration-700 ${pos[side]} ${data ? 'opacity-100 scale-110' : 'opacity-30 scale-95'}`}>
+      <div className="bg-slate-900 border-2 px-5 py-3 rounded-xl min-w-[170px] text-center shadow-[0_10px_30px_rgba(0,0,0,0.5)]" style={{ borderColor: color }}>
+        <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">
+            {data ? "SECURED DRAW" : `${side} SECTOR`}
+        </p>
+        <p className="text-xs font-black text-white uppercase truncate max-w-[140px]">
+            {data ? data.customer : '---'}
+        </p>
+        {data && <p className="text-[10px] font-black text-sky-400 mt-1">{data.result.label}</p>}
+      </div>
+      <div style={triangleStyle[side]} className="drop-shadow-xl" />
+    </div>
+  );
+};
+
+export default SectorSpinStore;
