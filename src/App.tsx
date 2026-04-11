@@ -1,23 +1,10 @@
-import React, { useState, useRef } from 'react';
-// Removed Cpu, Trophy, and Download as they were unused
-import { Zap, Upload, FileJson, FileSpreadsheet } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Zap, Upload, FileJson, FileSpreadsheet, Play } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 // --- TYPES ---
-interface VisualSlice {
-  label: string;
-  bg: string;
-  text: string;
-  id: string;
-}
-
-interface Winner {
-  side: string;
-  result: VisualSlice;
-  customer: string;
-  time: string;
-}
-
+interface VisualSlice { label: string; bg: string; text: string; id: string; }
+interface Winner { side: string; result: VisualSlice; customer: string; time: string; }
 type PrizeKey = 'reno' | 'f27' | 'buds' | 'speaker' | 'sandwich' | 'none';
 
 // --- CONSTANTS ---
@@ -57,6 +44,8 @@ const PRIZE_MAP: Record<PrizeKey, Omit<VisualSlice, 'id'>> = {
 };
 
 const SectorSpinStore: React.FC = () => {
+  const [gameState, setGameState] = useState<'landing' | 'countdown' | 'playing'>('landing');
+  const [count, setCount] = useState<number>(5);
   const [isSpinning, setIsSpinning] = useState<boolean>(false);
   const [rotation, setRotation] = useState<number>(0);
   const [activeWinners, setActiveWinners] = useState<Winner[]>([]);
@@ -73,23 +62,31 @@ const SectorSpinStore: React.FC = () => {
     return Array.from({ length: 20 }, (_, i) => ({ ...PRIZE_MAP[keys[i % keys.length] as PrizeKey], id: keys[i % keys.length] }));
   });
 
+  useEffect(() => {
+    if (gameState === 'countdown' && count > 0) {
+      const timer = setTimeout(() => setCount(count - 1), 1000);
+      return () => clearTimeout(timer);
+    } else if (gameState === 'countdown' && count === 0) {
+      setTimeout(() => setGameState('playing'), 500);
+    }
+  }, [gameState, count]);
+
   const exportData = async (format: 'json' | 'csv') => {
     if (history.length === 0) return alert("No history to export.");
     let content = "";
-    const suggestedName = `draw_backup_${new Date().getTime()}.${format}`;
+    const fileName = `SectorSpin_Backup_${new Date().getTime()}.${format}`;
     if (format === 'json') {
       content = JSON.stringify({ history, stock }, null, 2);
     } else {
       content = "Time,Customer,Prize,Station\n" + 
                 history.map(w => `${w.time},"${w.customer}","${w.result.label}","${w.side}"`).join("\n");
     }
-
     if ('showSaveFilePicker' in window) {
       try {
         const handle = await (window as any).showSaveFilePicker({
-          suggestedName: suggestedName,
+          suggestedName: fileName,
           types: [{
-            description: format === 'json' ? 'JSON File' : 'CSV File',
+            description: format === 'json' ? 'JSON Backup' : 'CSV Report',
             accept: format === 'json' ? { 'application/json': ['.json'] } : { 'text/csv': ['.csv'] },
           }],
         });
@@ -103,7 +100,7 @@ const SectorSpinStore: React.FC = () => {
       const blob = new Blob([content], { type: format === 'json' ? 'application/json' : 'text/csv' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url; a.download = suggestedName; a.click();
+      a.href = url; a.download = fileName; a.click();
     }
   };
 
@@ -117,11 +114,10 @@ const SectorSpinStore: React.FC = () => {
         if (data.history && data.stock) {
           setHistory(data.history);
           setStock(data.stock);
+          setGameState('playing');
           alert("Session Restored Successfully!");
         }
-      } catch (err) {
-        alert("Invalid JSON file.");
-      }
+      } catch (err) { alert("Invalid JSON file."); }
     };
     reader.readAsText(file);
   };
@@ -129,14 +125,8 @@ const SectorSpinStore: React.FC = () => {
   const spinWheel = () => {
     if (isSpinning || history.length >= CUSTOMER_NAMES.length) return;
     setIsSpinning(true);
-
-    const targets = [
-      { side: 'top', idx: 0 },
-      { side: 'right', idx: 5 },
-      { side: 'bottom', idx: 10 },
-      { side: 'left', idx: 15 }
-    ];
-
+    // Stations at index 0 (Top), 5 (Right), 10 (Bottom), 15 (Left)
+    const targets = [{ side: 'top', idx: 0 }, { side: 'right', idx: 5 }, { side: 'bottom', idx: 10 }, { side: 'left', idx: 15 }];
     let currentStock = { ...stock };
     let tempSlices = [...wheelSlices];
     const results: Winner[] = [];
@@ -144,36 +134,27 @@ const SectorSpinStore: React.FC = () => {
     targets.forEach((t, i) => {
       const prizePool: PrizeKey[] = [];
       (Object.keys(currentStock) as PrizeKey[]).forEach(key => {
-        for (let count = 0; count < currentStock[key]; count++) {
-          prizePool.push(key);
-        }
+        for (let count = 0; count < currentStock[key]; count++) { prizePool.push(key); }
       });
-
       const customerIdx = history.length + i;
-      
       if (prizePool.length > 0 && customerIdx < CUSTOMER_NAMES.length) {
         const randomIdx = Math.floor(Math.random() * prizePool.length);
         const pickedId = prizePool[randomIdx];
-        
         const newSlice = { ...PRIZE_MAP[pickedId], id: pickedId };
         tempSlices[t.idx] = newSlice;
         currentStock[pickedId]--;
-
         results.push({
-          side: t.side,
-          result: newSlice,
-          customer: CUSTOMER_NAMES[customerIdx],
+          side: t.side, result: newSlice, customer: CUSTOMER_NAMES[customerIdx],
           time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         });
       }
     });
 
     setWheelSlices(tempSlices);
-    const extraSpins = 360 * 8;
-    const currentRotMod = rotation % 360;
-    const stopAngle = (360 - (0 * SLICE_DEGREE) - (SLICE_DEGREE / 2));
-    const finalRotation = rotation + extraSpins + ((stopAngle - currentRotMod + 360) % 360);
-    
+    const extraSpins = 360 * 10;
+    // Calculation: Align index 0 to Top Pointer (Static at 0deg). 
+    // We subtract SLICE_DEGREE/2 (9deg) so the pointer hits the middle of the slice.
+    const finalRotation = rotation + extraSpins + (360 - (rotation % 360)) - (SLICE_DEGREE / 2);
     setRotation(finalRotation);
 
     setTimeout(() => {
@@ -185,19 +166,47 @@ const SectorSpinStore: React.FC = () => {
     }, 4000);
   };
 
+  if (gameState === 'landing') {
+    return (
+      <div className="bg-[#020617] min-h-screen flex flex-col items-center justify-center text-slate-100 p-6">
+        <div className="text-center space-y-8 animate-in fade-in zoom-in duration-700">
+          <div className="w-24 h-24 bg-sky-500/20 rounded-full flex items-center justify-center mx-auto border-2 border-sky-500 shadow-[0_0_30px_rgba(14,165,233,0.4)]">
+            <Zap size={48} className="text-sky-400 fill-sky-400" />
+          </div>
+          <h1 className="text-6xl font-black tracking-tighter italic uppercase">Sector<span className="text-sky-500">Spin</span></h1>
+          <p className="text-slate-400 max-w-md mx-auto font-medium tracking-wide">Ready for the Quad-Station Draw?</p>
+          <button onClick={() => setGameState('countdown')} className="px-12 py-6 bg-sky-600 rounded-2xl font-black text-xl uppercase tracking-widest hover:bg-sky-500 transition-all hover:scale-105 active:scale-95 flex items-center gap-4 mx-auto">
+            <Play fill="currentColor" /> START DRAW
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (gameState === 'countdown') {
+    return (
+      <div className="bg-[#020617] min-h-screen flex flex-col items-center justify-center text-slate-100">
+        <h2 className="text-4xl font-black text-sky-500 mb-4 animate-pulse uppercase tracking-widest">Are you ready?</h2>
+        <div key={count} className="text-[200px] font-black tabular-nums leading-none animate-in zoom-in fade-in duration-500 text-white drop-shadow-[0_0_50px_rgba(255,255,255,0.2)]">
+          {count === 0 ? "GO!" : count}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="bg-[#020617] min-h-screen text-slate-100 flex flex-col items-center p-6 font-sans overflow-x-hidden">
+    <div className="bg-[#020617] min-h-screen text-slate-100 flex flex-col items-center p-6 font-sans overflow-x-hidden animate-in fade-in duration-1000">
       
+      {/* TOOLBAR */}
       <div className="w-full max-w-5xl flex flex-wrap justify-between items-center gap-4 mb-6">
         <div className="flex gap-2">
             <button onClick={() => exportData('csv')} className="flex items-center gap-2 px-3 py-1.5 bg-emerald-600/20 text-emerald-400 border border-emerald-600/30 rounded-lg text-xs font-bold hover:bg-emerald-600/30 transition-all">
                 <FileSpreadsheet size={14}/> EXPORT CSV
             </button>
             <button onClick={() => exportData('json')} className="flex items-center gap-2 px-3 py-1.5 bg-amber-600/20 text-amber-400 border border-amber-600/30 rounded-lg text-xs font-bold hover:bg-amber-600/30 transition-all">
-                <FileJson size={14}/> BACKUP JSON
+                <FileJson size={14}/> SAVE BACKUP
             </button>
         </div>
-        
         <div className="flex items-center gap-2">
             <input type="file" accept=".json" ref={fileInputRef} onChange={restoreData} className="hidden" />
             <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 px-3 py-1.5 bg-sky-600/20 text-sky-400 border border-sky-600/30 rounded-lg text-xs font-bold hover:bg-sky-600/30 transition-all">
@@ -206,6 +215,7 @@ const SectorSpinStore: React.FC = () => {
         </div>
       </div>
 
+      {/* STOCK COUNTER */}
       <div className="w-full max-w-5xl grid grid-cols-3 md:grid-cols-6 gap-4 p-4 bg-slate-900/50 rounded-2xl border border-white/10 mb-8 shadow-xl">
           {(Object.keys(stock) as PrizeKey[]).map((id) => (
             <div key={id} className="text-center border-r border-white/5 last:border-0">
@@ -215,13 +225,20 @@ const SectorSpinStore: React.FC = () => {
           ))}
       </div>
 
-      <div className="relative my-32 scale-90 md:scale-100">
+      {/* WHEEL AREA */}
+      <div className="relative my-20 scale-90 md:scale-100">
         <Arrow side="top" color="#f87171" data={activeWinners.find(w => w.side === 'top')} />
         <Arrow side="bottom" color="#60a5fa" data={activeWinners.find(w => w.side === 'bottom')} />
         <Arrow side="right" color="#fbbf24" data={activeWinners.find(w => w.side === 'right')} />
         <Arrow side="left" color="#34d399" data={activeWinners.find(w => w.side === 'left')} />
 
-        <div className="relative w-[420px] h-[420px] rounded-full p-3 bg-slate-800 border-[10px] border-slate-900 shadow-2xl">
+        <div className="relative w-[440px] h-[440px] rounded-full p-4 bg-slate-950 border-[12px] border-slate-900 shadow-[0_0_100px_rgba(0,0,0,0.5)]">
+          
+          {/* Top Pointer Fixed */}
+          <div className="absolute top-[-15px] left-1/2 -translate-x-1/2 z-50">
+             <div className="w-8 h-8 bg-white rotate-45 border-4 border-slate-900 shadow-xl rounded-sm" />
+          </div>
+
           <div className="w-full h-full rounded-full transition-transform duration-[4000ms] cubic-bezier(0.15, 0, 0.15, 1)"
                 style={{ transform: `rotate(${rotation}deg)` }}>
             <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
@@ -234,7 +251,7 @@ const SectorSpinStore: React.FC = () => {
                     return (
                         <g key={`${i}-${s.id}`}>
                             <path d={`M 50 50 L ${x1} ${y1} A 50 50 0 0 1 ${x2} ${y2} Z`} fill={s.bg} stroke="#020617" strokeWidth="0.2" />
-                            <text x="75" y="50" fill={s.text} fontSize="2.2" fontWeight="900" textAnchor="middle" transform={`rotate(${angle + SLICE_DEGREE / 2} 50 50)`}>
+                            <text x="78" y="50" fill={s.text} fontSize="2.8" fontWeight="900" textAnchor="middle" transform={`rotate(${angle + SLICE_DEGREE / 2} 50 50)`}>
                                 {s.label}
                             </text>
                         </g>
@@ -242,22 +259,30 @@ const SectorSpinStore: React.FC = () => {
                 })}
             </svg>
           </div>
-          <div className="absolute inset-0 m-auto w-16 h-16 bg-slate-950 rounded-full border-4 border-slate-700 z-20 flex items-center justify-center">
+          
+          <div className="absolute inset-0 m-auto w-16 h-16 bg-slate-950 rounded-full border-4 border-slate-700 z-20 flex items-center justify-center shadow-inner">
             <Zap className={isSpinning ? "text-yellow-400 animate-pulse" : "text-sky-400"} />
           </div>
         </div>
       </div>
 
-      <button onClick={spinWheel} disabled={isSpinning || history.length >= CUSTOMER_NAMES.length} className="px-12 py-5 bg-sky-600 rounded-2xl font-black uppercase tracking-widest hover:bg-sky-500 transition-all active:scale-95 disabled:opacity-20">
+      <button onClick={spinWheel} disabled={isSpinning || history.length >= CUSTOMER_NAMES.length} className="px-16 py-6 bg-sky-600 rounded-2xl font-black uppercase tracking-[0.2em] shadow-[0_10px_40px_rgba(14,165,233,0.3)] hover:bg-sky-500 transition-all active:scale-95 disabled:opacity-20">
         {isSpinning ? 'SPINNING...' : 'START QUAD DRAW'}
       </button>
 
-      <div className="w-full max-w-6xl mt-20 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pb-20">
+      {/* HISTORY LOG */}
+      <div className="w-full max-w-6xl mt-16 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pb-20">
           {history.map((w, i) => (
-            <div key={i} className="bg-slate-900 p-4 rounded-xl border-l-4 shadow-lg" style={{ borderColor: w.result.bg }}>
-              <p className="text-[10px] text-slate-500 font-bold uppercase mb-1">{w.side} Station</p>
-              <p className="font-bold text-white text-sm truncate uppercase">{w.customer}</p>
-              <p className="text-[9px] font-black mt-2 inline-block px-2 py-1 rounded" style={{ backgroundColor: w.result.bg, color: w.result.text }}>{w.result.label}</p>
+            <div key={i} className="bg-slate-900/80 backdrop-blur-sm p-4 rounded-xl border-l-4 shadow-lg animate-in slide-in-from-bottom duration-500" style={{ borderColor: w.result.bg }}>
+              <div className="flex justify-between items-start mb-2">
+                <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{w.side} Station</span>
+                <span className="text-[8px] text-slate-600">{w.time}</span>
+              </div>
+              <p className="font-black text-white text-base truncate uppercase">{w.customer}</p>
+              <div className="mt-3 flex items-center gap-2">
+                 <div className="w-2 h-2 rounded-full" style={{ backgroundColor: w.result.bg }} />
+                 <p className="text-[10px] font-black uppercase tracking-wider" style={{ color: w.result.bg }}>{w.result.label}</p>
+              </div>
             </div>
           ))}
       </div>
@@ -266,23 +291,23 @@ const SectorSpinStore: React.FC = () => {
 };
 
 const Arrow: React.FC<{side: string, color: string, data: Winner | undefined}> = ({ side, color, data }) => {
+  // Ultra-tight positioning (96% offset) to minimize the gap to the wheel
   const layouts: Record<string, string> = {
-    top: "bottom-[102%] left-1/2 -translate-x-1/2 flex-col",
-    bottom: "top-[102%] left-1/2 -translate-x-1/2 flex-col-reverse",
-    left: "right-[102%] top-1/2 -translate-y-1/2 flex-row",
-    right: "left-[102%] top-1/2 -translate-y-1/2 flex-row-reverse"
+    top: "bottom-[96%] left-1/2 -translate-x-1/2 flex-col",
+    bottom: "top-[96%] left-1/2 -translate-x-1/2 flex-col-reverse",
+    left: "right-[96%] top-1/2 -translate-y-1/2 flex-row",
+    right: "left-[96%] top-1/2 -translate-y-1/2 flex-row-reverse"
   };
-  
   const arrows: Record<string, string> = { top: "▼", bottom: "▲", left: "▶", right: "◀" };
-
+  
   return (
-    <div className={`absolute flex items-center transition-all duration-700 ${layouts[side]} ${data ? 'opacity-100 scale-110' : 'opacity-20 scale-90'}`}>
-      <div className="bg-slate-950 border-2 p-4 rounded-2xl min-w-[160px] text-center shadow-2xl" style={{ borderColor: color }}>
-        <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest">{side}</p>
-        <p className="text-xs font-black text-white truncate max-w-[140px] uppercase">{data?.customer || 'Waiting...'}</p>
-        {data && <p className="text-[8px] font-bold mt-1 uppercase px-2 py-0.5 rounded" style={{ backgroundColor: data.result.bg, color: data.result.text }}>{data.result.label}</p>}
+    <div className={`absolute flex items-center transition-all duration-700 ${layouts[side]} ${data ? 'opacity-100 scale-100' : 'opacity-10 scale-90'}`}>
+      <div className="bg-slate-950/95 backdrop-blur-md border-2 p-3 rounded-xl min-w-[150px] text-center shadow-2xl" style={{ borderColor: color }}>
+        <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">{side}</p>
+        <p className="text-sm font-black text-white truncate max-w-[130px] uppercase leading-tight">{data?.customer || 'Waiting...'}</p>
+        {data && <p className="text-[8px] font-bold mt-2 uppercase px-2 py-0.5 rounded inline-block" style={{ backgroundColor: data.result.bg, color: data.result.text }}>{data.result.label}</p>}
       </div>
-      <div className="text-2xl m-2" style={{ color }}>{arrows[side]}</div>
+      <div className="text-2xl m-0.5 drop-shadow-[0_0_8px_rgba(255,255,255,0.1)]" style={{ color }}>{arrows[side]}</div>
     </div>
   );
 };
