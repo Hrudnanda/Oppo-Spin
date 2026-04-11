@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Zap, Upload, FileJson, FileSpreadsheet, Play } from 'lucide-react';
+import { Zap, Upload, FileJson, FileSpreadsheet, Play, RotateCcw } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 // --- TYPES ---
@@ -8,6 +8,7 @@ interface Winner { side: string; result: VisualSlice; customer: string; time: st
 type PrizeKey = 'reno' | 'f27' | 'buds' | 'speaker' | 'sandwich' | 'none';
 
 // --- CONSTANTS ---
+const STORAGE_KEY = 'sector_spin_data';
 const CUSTOMER_NAMES: string[] = [
   "ABHISHEK PATTANAIK", "AMIT KUMAR PANDA", "ASHIT KUMAR PATRA", "BAPI BEHERA", "BARSHA RANI NAYAK",
   "BIJAY KUMAR SENAPATI", "BIKASH JENA", "BISWAJEET DHAL", "BISWAJIT SAHOO", "BISWAKALYAN MOHANTY",
@@ -43,16 +44,37 @@ const PRIZE_MAP: Record<PrizeKey, Omit<VisualSlice, 'id'>> = {
   sandwich: { label: "SANDWICH MAKER", bg: "#fcd34d", text: "#000" },
 };
 
+const INITIAL_STOCK = { reno: 3, f27: 7, buds: 30, speaker: 20, sandwich: 20, none: 36 };
+
 const SectorSpinStore: React.FC = () => {
-  const [gameState, setGameState] = useState<'landing' | 'countdown' | 'playing'>('landing');
+  // --- PERSISTENCE LOGIC ---
+  const [history, setHistory] = useState<Winner[]>(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    return saved ? JSON.parse(saved).history : [];
+  });
+
+  const [stock, setStock] = useState<Record<PrizeKey, number>>(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    return saved ? JSON.parse(saved).stock : INITIAL_STOCK;
+  });
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ history, stock }));
+  }, [history, stock]);
+
+  const resetGame = () => {
+    if (window.confirm("Are you sure you want to clear all data and reset the game?")) {
+      localStorage.removeItem(STORAGE_KEY);
+      window.location.reload();
+    }
+  };
+
+  // --- REST OF STATE ---
+  const [gameState, setGameState] = useState<'landing' | 'countdown' | 'playing'>(history.length > 0 ? 'playing' : 'landing');
   const [count, setCount] = useState<number>(5);
   const [isSpinning, setIsSpinning] = useState<boolean>(false);
   const [rotation, setRotation] = useState<number>(0);
   const [activeWinners, setActiveWinners] = useState<Winner[]>([]);
-  const [history, setHistory] = useState<Winner[]>([]);
-  const [stock, setStock] = useState<Record<PrizeKey, number>>({
-    reno: 3, f27: 7, buds: 30, speaker: 20, sandwich: 20, none: 36
-  });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const SLICE_DEGREE = 360 / 20;
@@ -71,37 +93,48 @@ const SectorSpinStore: React.FC = () => {
     }
   }, [gameState, count]);
 
+  // --- UPDATED EXPORT WITH LOCATION PICKER ---
   const exportData = async (format: 'json' | 'csv') => {
     if (history.length === 0) return alert("No history to export.");
+    
     let content = "";
-    const fileName = `SectorSpin_Backup_${new Date().getTime()}.${format}`;
+    const suggestedName = `SectorSpin_Backup_${new Date().getTime()}.${format}`;
+    
     if (format === 'json') {
       content = JSON.stringify({ history, stock }, null, 2);
     } else {
       content = "Time,Customer,Prize,Station\n" + 
                 history.map(w => `${w.time},"${w.customer}","${w.result.label}","${w.side}"`).join("\n");
     }
+
+    // Attempt to use modern File System Access API to let user choose location
     if ('showSaveFilePicker' in window) {
       try {
         const handle = await (window as any).showSaveFilePicker({
-          suggestedName: fileName,
+          suggestedName: suggestedName,
           types: [{
-            description: format === 'json' ? 'JSON Backup' : 'CSV Report',
+            description: format === 'json' ? 'JSON File' : 'CSV Spreadsheet',
             accept: format === 'json' ? { 'application/json': ['.json'] } : { 'text/csv': ['.csv'] },
           }],
         });
         const writable = await handle.createWritable();
         await writable.write(content);
         await writable.close();
+        return; // Success
       } catch (err: any) {
-        if (err.name !== 'AbortError') console.error(err);
+        if (err.name === 'AbortError') return; // User cancelled
+        console.error("Picker failed, falling back to download", err);
       }
-    } else {
-      const blob = new Blob([content], { type: format === 'json' ? 'application/json' : 'text/csv' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = fileName; a.click();
     }
+
+    // Fallback for older browsers
+    const blob = new Blob([content], { type: format === 'json' ? 'application/json' : 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = suggestedName;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const restoreData = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -205,6 +238,9 @@ const SectorSpinStore: React.FC = () => {
             </button>
         </div>
         <div className="flex items-center gap-2">
+            <button onClick={resetGame} className="flex items-center gap-2 px-3 py-1.5 bg-red-600/20 text-red-400 border border-red-600/30 rounded-lg text-xs font-bold hover:bg-red-600/30 transition-all">
+                <RotateCcw size={14}/> RESET GAME
+            </button>
             <input type="file" accept=".json" ref={fileInputRef} onChange={restoreData} className="hidden" />
             <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 px-3 py-1.5 bg-sky-600/20 text-sky-400 border border-sky-600/30 rounded-lg text-xs font-bold hover:bg-sky-600/30 transition-all">
                 <Upload size={14}/> RESTORE SESSION
@@ -265,7 +301,7 @@ const SectorSpinStore: React.FC = () => {
         {isSpinning ? 'SPINNING...' : 'START QUAD DRAW'}
       </button>
 
-      {/* HISTORY LOG WITH LATEST 4 HIGHLIGHTED */}
+      {/* HISTORY LOG */}
       <div className="w-full max-w-6xl mt-16 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 pb-20">
           {history.map((w, i) => {
             const isLatestBatch = i < 4;
@@ -279,22 +315,18 @@ const SectorSpinStore: React.FC = () => {
                   }`} 
                 style={{ borderColor: w.result.bg }}
               >
-                {/* Visual indicator for latest 4 */}
                 {isLatestBatch && (
                   <div className="absolute -top-3 -right-2 bg-sky-500 text-white text-[8px] font-black px-2 py-1 rounded-md shadow-lg animate-bounce uppercase">
                     Latest Winner
                   </div>
                 )}
-
                 <div className="flex justify-between items-start mb-2">
                   <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{w.side} Station</span>
                   <span className="text-[8px] text-slate-600">{w.time}</span>
                 </div>
-                
                 <p className={`font-black truncate uppercase ${isLatestBatch ? 'text-white text-base' : 'text-slate-400 text-sm'}`}>
                   {w.customer}
                 </p>
-                
                 <div className="mt-3 flex items-center gap-2">
                    <div className={`w-2 h-2 rounded-full ${isLatestBatch ? 'animate-pulse' : ''}`} style={{ backgroundColor: w.result.bg }} />
                    <p className="text-[10px] font-black uppercase tracking-wider" style={{ color: w.result.bg }}>{w.result.label}</p>
