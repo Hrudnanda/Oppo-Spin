@@ -125,7 +125,6 @@ const SectorSpinStore: React.FC = () => {
   const spinWheel = () => {
     if (isSpinning || history.length >= CUSTOMER_NAMES.length) return;
     setIsSpinning(true);
-    // Stations at index 0 (Top), 5 (Right), 10 (Bottom), 15 (Left)
     const targets = [{ side: 'top', idx: 0 }, { side: 'right', idx: 5 }, { side: 'bottom', idx: 10 }, { side: 'left', idx: 15 }];
     let currentStock = { ...stock };
     let tempSlices = [...wheelSlices];
@@ -152,8 +151,6 @@ const SectorSpinStore: React.FC = () => {
 
     setWheelSlices(tempSlices);
     const extraSpins = 360 * 10;
-    // Calculation: Align index 0 to Top Pointer (Static at 0deg). 
-    // We subtract SLICE_DEGREE/2 (9deg) so the pointer hits the middle of the slice.
     const finalRotation = rotation + extraSpins + (360 - (rotation % 360)) - (SLICE_DEGREE / 2);
     setRotation(finalRotation);
 
@@ -233,8 +230,6 @@ const SectorSpinStore: React.FC = () => {
         <Arrow side="left" color="#34d399" data={activeWinners.find(w => w.side === 'left')} />
 
         <div className="relative w-[440px] h-[440px] rounded-full p-4 bg-slate-950 border-[12px] border-slate-900 shadow-[0_0_100px_rgba(0,0,0,0.5)]">
-          
-          {/* Top Pointer Fixed */}
           <div className="absolute top-[-15px] left-1/2 -translate-x-1/2 z-50">
              <div className="w-8 h-8 bg-white rotate-45 border-4 border-slate-900 shadow-xl rounded-sm" />
           </div>
@@ -270,28 +265,49 @@ const SectorSpinStore: React.FC = () => {
         {isSpinning ? 'SPINNING...' : 'START QUAD DRAW'}
       </button>
 
-      {/* HISTORY LOG */}
-      <div className="w-full max-w-6xl mt-16 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pb-20">
-          {history.map((w, i) => (
-            <div key={i} className="bg-slate-900/80 backdrop-blur-sm p-4 rounded-xl border-l-4 shadow-lg animate-in slide-in-from-bottom duration-500" style={{ borderColor: w.result.bg }}>
-              <div className="flex justify-between items-start mb-2">
-                <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{w.side} Station</span>
-                <span className="text-[8px] text-slate-600">{w.time}</span>
+      {/* HISTORY LOG WITH LATEST 4 HIGHLIGHTED */}
+      <div className="w-full max-w-6xl mt-16 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 pb-20">
+          {history.map((w, i) => {
+            const isLatestBatch = i < 4;
+            return (
+              <div 
+                key={`${i}-${w.customer}`} 
+                className={`relative bg-slate-900/80 backdrop-blur-sm p-4 rounded-xl border-l-4 shadow-lg transition-all duration-500 animate-in slide-in-from-bottom
+                  ${isLatestBatch 
+                    ? 'ring-2 ring-sky-500/50 scale-105 z-10 shadow-[0_0_20px_rgba(14,165,233,0.3)]' 
+                    : 'opacity-60 hover:opacity-100'
+                  }`} 
+                style={{ borderColor: w.result.bg }}
+              >
+                {/* Visual indicator for latest 4 */}
+                {isLatestBatch && (
+                  <div className="absolute -top-3 -right-2 bg-sky-500 text-white text-[8px] font-black px-2 py-1 rounded-md shadow-lg animate-bounce uppercase">
+                    Latest Winner
+                  </div>
+                )}
+
+                <div className="flex justify-between items-start mb-2">
+                  <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{w.side} Station</span>
+                  <span className="text-[8px] text-slate-600">{w.time}</span>
+                </div>
+                
+                <p className={`font-black truncate uppercase ${isLatestBatch ? 'text-white text-base' : 'text-slate-400 text-sm'}`}>
+                  {w.customer}
+                </p>
+                
+                <div className="mt-3 flex items-center gap-2">
+                   <div className={`w-2 h-2 rounded-full ${isLatestBatch ? 'animate-pulse' : ''}`} style={{ backgroundColor: w.result.bg }} />
+                   <p className="text-[10px] font-black uppercase tracking-wider" style={{ color: w.result.bg }}>{w.result.label}</p>
+                </div>
               </div>
-              <p className="font-black text-white text-base truncate uppercase">{w.customer}</p>
-              <div className="mt-3 flex items-center gap-2">
-                 <div className="w-2 h-2 rounded-full" style={{ backgroundColor: w.result.bg }} />
-                 <p className="text-[10px] font-black uppercase tracking-wider" style={{ color: w.result.bg }}>{w.result.label}</p>
-              </div>
-            </div>
-          ))}
+            );
+          })}
       </div>
     </div>
   );
 };
 
 const Arrow: React.FC<{side: string, color: string, data: Winner | undefined}> = ({ side, color, data }) => {
-  // Ultra-tight positioning (96% offset) to minimize the gap to the wheel
   const layouts: Record<string, string> = {
     top: "bottom-[96%] left-1/2 -translate-x-1/2 flex-col",
     bottom: "top-[96%] left-1/2 -translate-x-1/2 flex-col-reverse",
