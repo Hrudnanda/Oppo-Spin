@@ -1,8 +1,24 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { Zap, RotateCcw, FileJson, FileSpreadsheet, FolderInput } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
-const MASTER_SCRIPT = [
+// Fix: Define a clear interface for the Winner object to resolve 'never' and 'any' errors
+interface Winner {
+  side: string;
+  customer: string;
+  gift: string;
+  color: string;
+  keyId: number;
+}
+
+// Interface for the master script items
+interface ScriptEntry {
+  name: string;
+  gift: string;
+  color: string;
+}
+
+const MASTER_SCRIPT: ScriptEntry[] = [
   { name: "JIBANANANDA MALLIK", gift: "Soundbar", color: "#06b6d4" },
   { name: "ABHISHEK PATTANAIK", gift: "A3 Pro", color: "#3b82f6" },
   { name: "DIPAK KUMAR DAS", gift: "Buds 3 Pro+", color: "#10b981" },
@@ -121,19 +137,32 @@ const MASTER_SCRIPT = [
 ];
 
 const SectorSpinStore = () => {
-  const [history, setHistory] = useState(() => JSON.parse(localStorage.getItem('spin_history') || '[]'));
-  const [currentIndex, setCurrentIndex] = useState(() => parseInt(localStorage.getItem('spin_index') || '0'));
-  const [isSpinning, setIsSpinning] = useState(false);
-  const [rotation, setRotation] = useState(0);
-  const [activeWinners, setActiveWinners] = useState([]);
-  const [displayGifts, setDisplayGifts] = useState(Array(20).fill("..."));
+  // Fix: Explicitly typing useState prevents 'any[]' and 'never[]' errors
+  const [history, setHistory] = useState<Winner[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('spin_history') || '[]');
+    } catch {
+      return [];
+    }
+  });
   
-  const fileInputRef = useRef(null);
+  const [currentIndex, setCurrentIndex] = useState<number>(() => 
+    parseInt(localStorage.getItem('spin_index') || '0')
+  );
+  
+  const [isSpinning, setIsSpinning] = useState<boolean>(false);
+  const [rotation, setRotation] = useState<number>(0);
+  const [activeWinners, setActiveWinners] = useState<Winner[]>([]);
+  const [displayGifts, setDisplayGifts] = useState<string[]>(Array(20).fill("..."));
+  
+  // Fix: Add HTMLInputElement type to Ref
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // --- SAVE LOGIC ---
-  const saveToFile = async (data, filename, type) => {
+  // Fix: Added explicit types for parameters to resolve ts(7006)
+  const saveToFile = async (data: string, filename: string, type: string) => {
     try {
       if ('showSaveFilePicker' in window) {
+        // @ts-ignore - for environments that don't know showSaveFilePicker
         const handle = await window.showSaveFilePicker({
           suggestedName: filename,
           types: [{
@@ -154,7 +183,7 @@ const SectorSpinStore = () => {
         URL.revokeObjectURL(url);
       }
     } catch (err) {
-      if (err.name !== 'AbortError') console.error("Export failed", err);
+      if (err instanceof Error && err.name !== 'AbortError') console.error("Export failed", err);
     }
   };
 
@@ -170,15 +199,17 @@ const SectorSpinStore = () => {
     saveToFile(headers + body, `Winners_${new Date().toLocaleDateString()}.csv`, 'text/csv');
   };
 
-  // --- RESTORE LOGIC ---
-  const handleRestoreJSON = (event) => {
-    const file = event.target.files[0];
+  // Fix: Typed the event parameter
+  const handleRestoreJSON = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
     if (!file) return;
 
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const importedData = JSON.parse(e.target.result);
+        const result = e.target?.result;
+        if (typeof result !== 'string') return;
+        const importedData = JSON.parse(result);
         if (Array.isArray(importedData)) {
             if (window.confirm(`Found ${importedData.length} winners. Overwrite current progress?`)) {
                 setHistory(importedData);
@@ -199,7 +230,6 @@ const SectorSpinStore = () => {
     event.target.value = ''; 
   };
 
-  // --- SPIN LOGIC ---
   const spinWheel = () => {
     if (isSpinning || currentIndex >= MASTER_SCRIPT.length) return;
     setIsSpinning(true);
@@ -207,7 +237,9 @@ const SectorSpinStore = () => {
 
     const targetSliceIndices = [0, 5, 10, 15]; 
     const stations = ['top', 'right', 'bottom', 'left'];
-    const sessionWinners = [];
+    
+    // Fix: Explicitly typed local array
+    const sessionWinners: Winner[] = [];
     const newLabels = [...displayGifts];
 
     for (let j = 0; j < 20; j++) {
@@ -232,15 +264,11 @@ const SectorSpinStore = () => {
 
     setDisplayGifts(newLabels);
 
-    // EXACT ALIGNMENT CALCULATION:
-    // Each slice is 18°. SVG text is at the 9° (middle) mark of slice[0].
-    // To bring slice[0]'s middle to exactly 0° (Top), we rotate to -9°.
     const sliceWidth = 18;
     const centerOffset = sliceWidth / 2;
     const extraSpins = 10 * 360; 
     const targetRotation = extraSpins - centerOffset;
 
-    // Ensure we always rotate forward from current position
     const baseRotation = Math.ceil(rotation / 360) * 360;
     setRotation(baseRotation + targetRotation);
 
@@ -249,7 +277,7 @@ const SectorSpinStore = () => {
       confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
       setActiveWinners(sessionWinners);
 
-      setHistory(prev => {
+      setHistory((prev) => {
         const updated = [...sessionWinners, ...prev];
         localStorage.setItem('spin_history', JSON.stringify(updated));
         return updated;
@@ -282,7 +310,8 @@ const SectorSpinStore = () => {
                   accept=".json" 
                   className="hidden" 
                 />
-                <button onClick={() => fileInputRef.current.click()}
+                {/* Fix: Added optional chaining to ref access */}
+                <button onClick={() => fileInputRef.current?.click()}
                    className="flex items-center gap-2 px-3 py-1.5 text-[10px] font-black hover:bg-slate-800 rounded-lg transition-all uppercase text-sky-400">
                     <FolderInput size={14}/> Restore
                 </button>
